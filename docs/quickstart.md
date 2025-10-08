@@ -95,6 +95,72 @@ results = qal.search_text("الله", normalized=True)
 results = qal.search_text("ٱللَّهِ", normalized=False)
 ```
 
+## Fuzzy Search
+
+### Partial Ayah Detection
+
+```python
+# Find verses containing partial text (even if not exact match)
+query = "كذلك يجتبيك ربك ويعلمك من تأويل الأحاديث"
+results = qal.fuzzy_search(query, threshold=0.8)
+
+print(f"Found {len(results)} fuzzy matches")
+for result in results[:3]:
+    print(f"Surah {result.verse.surah_number}:{result.verse.ayah_number}")
+    print(f"Similarity: {result.similarity:.3f}")
+    print(f"Words {result.start_word}-{result.end_word}: {result.matched_text[:60]}...")
+```
+
+### Finding Repeated Phrases
+
+```python
+# Find all occurrences of repeated phrases
+repeated_phrase = "فبأي الاء ربكما تكذبان"  # From Surah Ar-Rahman
+results = qal.fuzzy_search(repeated_phrase, threshold=0.9)
+
+print(f"Found {len(results)} occurrences of this phrase:")
+for result in results[:10]:
+    print(f"  Surah {result.verse.surah_number}:{result.verse.ayah_number} (similarity: {result.similarity:.3f})")
+
+# Another repeated phrase example
+another_phrase = "ومن اظلم ممن افترى على الله كذبا"
+results = qal.fuzzy_search(another_phrase, threshold=0.85)
+print(f"Found {len(results)} matches for 'Who is more unjust' phrase")
+```
+
+### Configurable Similarity
+
+```python
+# High precision search (strict matching)
+precise_results = qal.fuzzy_search("الحمد لله رب العالمين", threshold=0.95)
+
+# Lower precision (more matches, less strict)
+broad_results = qal.fuzzy_search("الحمد لله رب العالمين", threshold=0.7)
+
+print(f"Precise search: {len(precise_results)} results")
+print(f"Broad search: {len(broad_results)} results")
+
+# Limit number of results
+top_results = qal.fuzzy_search("بسم الله", max_results=10)
+```
+
+### Advanced Fuzzy Search Features
+
+```python
+# Access detailed match information
+results = qal.fuzzy_search("ويعلمك من تأويل الأحاديث")
+for result in results[:2]:
+    # Get the exact matched segment
+    words = result.verse.text_normalized.split()
+    matched_segment = " ".join(words[result.start_word:result.end_word])
+    
+    print(f"Query: {result.query_text}")
+    print(f"Matched: {matched_segment}")
+    print(f"Full verse: {result.verse.text}")
+    print(f"Word positions: {result.start_word} to {result.end_word}")
+    print("-" * 50)
+```
+
 ## Text Normalization
 
 ### Arabic Text Processing

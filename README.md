@@ -1,6 +1,17 @@
-# Quran Ayah Lookup
+# Quran Ay## Features
 
-[![PyPI version](https://badge.fury.io/py/quran-ayah-lookup.svg)](https://badge.fury.io/py/quran-ayah-lookup)
+- 🚀 **O(1) Performance**: Lightning-fast verse lookup (956x faster than linear search!)
+- 📖 **Ayah Lookup**: Direct access with `db[surah][ayah]` syntax
+- 🔍 **Arabic Text Search**: Search for ayahs using Arabic text
+- 🎯 **Fuzzy Search**: Advanced partial text matching with similarity scoring
+- 🔄 **Repeated Phrases**: Find all occurrences of repeated Quranic phrases
+- 📏 **Word-level Positioning**: Precise match locations within verses
+- 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
+- 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
+- 🏗️ **Chapter-based Structure**: Efficient QuranChapter organization
+- 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
+- 📚 **Tanzil.net Corpus**: Uses trusted Quran text from Tanzil.net
+- ✨ **Complete Coverage**: Full Quran with 6,348 verses including Basmalas[![PyPI version](https://badge.fury.io/py/quran-ayah-lookup.svg)](https://badge.fury.io/py/quran-ayah-lookup)
 [![Python Support](https://img.shields.io/pypi/pyversions/quran-ayah-lookup.svg)](https://pypi.org/project/quran-ayah-lookup/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -66,6 +77,15 @@ print(f"Surah has {len(surah)} verses")
 results = qal.search_text("الله")
 print(f"Found {len(results)} verses containing 'الله'")
 
+# Fuzzy search with partial matching
+fuzzy_results = qal.fuzzy_search("كذلك يجتبيك ربك ويعلمك", threshold=0.8)
+for result in fuzzy_results[:3]:
+    print(f"Surah {result.verse.surah_number}:{result.verse.ayah_number} (similarity: {result.similarity:.3f})")
+
+# Find repeated phrases
+repeated = qal.fuzzy_search("فبأي الاء ربكما تكذبان")
+print(f"Found {len(repeated)} occurrences of this repeated phrase")
+
 # Check verse existence (O(1))
 if 35 in surah:
     verse = surah[35]
@@ -106,6 +126,7 @@ surah.has_basmala()  # Check for Basmala
 
 # Search and utility
 results = qal.search_text(query, normalized=True)
+fuzzy_results = qal.fuzzy_search(query, threshold=0.7, max_results=10)
 verses = qal.get_surah_verses(surah_number)
 normalized = qal.normalize_arabic_text(text)
 ```
@@ -115,6 +136,7 @@ normalized = qal.normalize_arabic_text(text)
 - **`QuranVerse`**: Individual verse with original and normalized text
 - **`QuranChapter`**: Surah container with O(1) verse access
 - **`QuranDatabase`**: Main database with chapter organization
+- **`FuzzySearchResult`**: Fuzzy search result with similarity and position data
 
 ## Requirements
 
@@ -195,13 +217,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### ✅ Completed
 - [x] **O(1) Verse Lookup**: Lightning-fast `db[surah][ayah]` access
 - [x] **Arabic Text Search**: Full-text search across all verses
+- [x] **Fuzzy matching for Arabic text searches**: Partial text matching with similarity scoring
 - [x] **Smart Basmala Handling**: Automatic extraction and organization
 - [x] **Text Normalization**: Advanced Arabic diacritics removal
 - [x] **Chapter Organization**: Efficient QuranChapter structure
 - [x] **Complete Database**: 6,348 verses with proper indexing
 
 ### 🚧 In Progress
-- [ ] Fuzzy matching for Arabic text searches
 - [ ] Advanced search with filters (surah range, verse types)
 - [ ] Performance optimizations and caching
 

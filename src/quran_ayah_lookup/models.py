@@ -2,7 +2,7 @@
 Data models for Quran verses and related structures.
 """
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 @dataclass
@@ -30,6 +30,37 @@ class QuranVerse:
     def __repr__(self) -> str:
         return (f"QuranVerse(surah={self.surah_number}, ayah={self.ayah_number}, "
                 f"text='{self.text[:30]}...', is_basmalah={self.is_basmalah})")
+
+
+@dataclass
+class FuzzySearchResult:
+    """
+    Represents a fuzzy search result with partial match information.
+    
+    Attributes:
+        verse (QuranVerse): The matched verse
+        start_word (int): Starting word index of the match (0-based)
+        end_word (int): Ending word index of the match (exclusive)
+        similarity (float): Similarity score (0.0-1.0)
+        matched_text (str): The actual text segment that was matched
+        query_text (str): The original query text used for matching
+    """
+    verse: 'QuranVerse'
+    start_word: int
+    end_word: int
+    similarity: float
+    matched_text: str
+    query_text: str
+    
+    def __str__(self) -> str:
+        verse_type = "Basmala" if self.verse.is_basmalah else "Ayah"
+        return (f"{verse_type} {self.verse.surah_number}:{self.verse.ayah_number} "
+                f"(similarity: {self.similarity:.3f}, words: {self.start_word}-{self.end_word}) - "
+                f"{self.matched_text[:50]}...")
+    
+    def __repr__(self) -> str:
+        return (f"FuzzySearchResult(verse={self.verse.surah_number}:{self.verse.ayah_number}, "
+                f"similarity={self.similarity:.3f}, words={self.start_word}-{self.end_word})")
 
 
 @dataclass
@@ -147,6 +178,25 @@ class QuranDatabase:
                 if query in search_text:
                     results.append(verse)
         return results
+    
+    def fuzzy_search(self, query: str, threshold: float = 0.7, normalized: bool = True, 
+                    max_results: Optional[int] = None) -> List['FuzzySearchResult']:
+        """
+        Perform fuzzy search with partial text matching across all verses.
+        
+        Args:
+            query: Text to search for
+            threshold: Minimum similarity score (0.0-1.0)
+            normalized: Whether to search in normalized text (default: True)
+            max_results: Maximum number of results to return (None for no limit)
+        
+        Returns:
+            List of FuzzySearchResult objects sorted by similarity score
+        """
+        from .text_utils import fuzzy_search_text
+        
+        all_verses = self.get_all_verses()
+        return fuzzy_search_text(query, all_verses, threshold, normalized, max_results)
     
     def get_surah_count(self) -> int:
         """Get the total number of surahs in the database."""

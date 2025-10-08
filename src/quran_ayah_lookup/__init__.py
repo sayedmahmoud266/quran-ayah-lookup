@@ -13,7 +13,7 @@ __author__ = "Sayed Mahmoud"
 __email__ = "foss-support@sayedmahmoud266.website"
 
 # Import core functionality
-from .models import QuranVerse, QuranChapter, QuranDatabase
+from .models import QuranVerse, QuranChapter, QuranDatabase, FuzzySearchResult
 from .text_utils import normalize_arabic_text
 from .loader import initialize_quran_database, get_quran_database
 
@@ -24,12 +24,14 @@ _quran_db = initialize_quran_database()
 __all__ = [
     'QuranVerse',
     'QuranChapter',
-    'QuranDatabase', 
+    'QuranDatabase',
+    'FuzzySearchResult',
     'normalize_arabic_text',
     'get_quran_database',
     'get_verse',
     'get_surah',
     'search_text',
+    'fuzzy_search',
     'get_surah_verses',
 ]
 
@@ -85,6 +87,33 @@ def search_text(query: str, normalized: bool = True) -> list:
         List[QuranVerse]: List of matching verses
     """
     return get_quran_database().search_text(query, normalized)
+
+
+def fuzzy_search(query: str, threshold: float = 0.7, normalized: bool = True, 
+                max_results: int = None) -> list:
+    """
+    Perform fuzzy search with partial text matching across all verses.
+    
+    Args:
+        query (str): Arabic text to search for
+        threshold (float): Minimum similarity score (0.0-1.0, default: 0.7)
+        normalized (bool): Whether to search in normalized text (default: True)
+        max_results (int, optional): Maximum number of results to return
+        
+    Returns:
+        List[FuzzySearchResult]: List of fuzzy search results sorted by similarity
+        
+    Examples:
+        >>> results = fuzzy_search("كذلك يجتبيك ربك ويعلمك", threshold=0.8)
+        >>> for result in results[:5]:
+        ...     print(f"Similarity: {result.similarity:.3f}")
+        ...     print(f"Match: {result.matched_text}")
+        
+        >>> # Search for repeated phrases
+        >>> results = fuzzy_search("فبأي الاء ربكما تكذبان")
+        >>> print(f"Found {len(results)} matches")
+    """
+    return get_quran_database().fuzzy_search(query, threshold, normalized, max_results)
 
 
 def get_surah_verses(surah_number: int) -> list:

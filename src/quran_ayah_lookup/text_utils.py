@@ -233,3 +233,137 @@ def get_normalized_basmala() -> str:
         str: Normalized Basmala text
     """
     return normalize_arabic_text(extract_basmala())
+
+
+def fuzzy_substring_search(query: str, text: str, window_size: int = None, 
+                          threshold: float = 0.7) -> dict:
+    """
+    Perform fuzzy substring search within a single text using sliding window approach.
+    
+    Args:
+        query (str): The text to search for
+        text (str): The text to search within
+        window_size (int, optional): Size of the sliding window. If None, uses query length + 3
+        threshold (float): Minimum similarity score (0.0-1.0)
+        
+    Returns:
+        dict: Match information with start_word, end_word, similarity, and matched_text
+              Returns None if no match above threshold is found
+    """
+    from rapidfuzz import fuzz
+    
+    if not query.strip() or not text.strip():
+        return None
+    
+    # Split into words
+    text_words = text.split()
+    query_words = query.split()
+    q_len = len(query_words)
+    
+    if q_len == 0 or len(text_words) == 0:
+        return None
+    
+    # Set window size with buffer
+    if not window_size:
+        window_size = max(q_len + 3, q_len * 2)  # Flexible window size
+    
+    best_score = 0
+    best_range = (0, 0)
+    best_matched_text = ""
+    
+    # Slide a window across the text
+    max_start = max(0, len(text_words) - q_len + 1)
+    for i in range(max_start):
+        # Try different window sizes to find the best match
+        for current_window in [q_len, min(window_size, len(text_words) - i)]:
+            if i + current_window > len(text_words):
+                continue
+                
+            segment = " ".join(text_words[i:i+current_window])
+            
+            # Use token_set_ratio for better Arabic text matching
+            score = fuzz.token_set_ratio(query, segment) / 100.0
+            
+            if score > best_score:
+                best_score = score
+                best_range = (i, i + current_window)
+                best_matched_text = segment
+    
+    # Also try token_sort_ratio for different matching approach
+    for i in range(max_start):
+        for current_window in [q_len, min(window_size, len(text_words) - i)]:
+            if i + current_window > len(text_words):
+                continue
+                
+            segment = " ".join(text_words[i:i+current_window])
+            
+            # Use token_sort_ratio as alternative
+            score = fuzz.token_sort_ratio(query, segment) / 100.0
+            
+            if score > best_score:
+                best_score = score
+                best_range = (i, i + current_window)
+                best_matched_text = segment
+    
+    if best_score < threshold:
+        return None  # No good match found
+    
+    return {
+        "start_word": best_range[0],
+        "end_word": best_range[1],
+        "similarity": round(best_score, 3),
+        "matched_text": best_matched_text
+    }
+
+
+def fuzzy_search_text(query: str, verses: list, threshold: float = 0.7, 
+                     normalized: bool = True, max_results: int = None) -> list:
+    """
+    Perform fuzzy search across multiple verses with partial text matching.
+    
+    Args:
+        query (str): The text to search for
+        verses (List[QuranVerse]): List of verses to search in
+        threshold (float): Minimum similarity score (0.0-1.0)
+        normalized (bool): Whether to search in normalized text (default: True)
+        max_results (int, optional): Maximum number of results to return
+        
+    Returns:
+        List[FuzzySearchResult]: List of fuzzy search results, sorted by similarity score
+    """
+    from .models import FuzzySearchResult
+    
+    if not query.strip():
+        return []
+    
+    # Normalize query if needed
+    search_query = normalize_arabic_text(query.strip()) if normalized else query.strip()
+    results = []
+    
+    for verse in verses:
+        # Choose which text to search in
+        search_text = verse.text_normalized if normalized else verse.text
+        
+        # Perform fuzzy substring search
+        match = fuzzy_substring_search(search_query, search_text, threshold=threshold)
+        
+        if match:
+            # Create result object
+            result = FuzzySearchResult(
+                verse=verse,
+                start_word=match["start_word"],
+                end_word=match["end_word"],
+                similarity=match["similarity"],
+                matched_text=match["matched_text"],
+                query_text=search_query
+            )
+            results.append(result)
+    
+    # Sort by similarity score (descending)
+    results.sort(key=lambda x: x.similarity, reverse=True)
+    
+    # Limit results if specified
+    if max_results and len(results) > max_results:
+        results = results[:max_results]
+    
+    return results

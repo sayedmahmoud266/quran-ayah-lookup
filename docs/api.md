@@ -55,7 +55,7 @@ verse = surah[35]         # O(1) access to verse 35
 
 ### search_text(query: str, normalized: bool = True) → List[QuranVerse]
 
-Search for verses containing the query text.
+Search for verses containing the query text (exact substring matching).
 
 ```python
 results = qal.search_text("الله", normalized=True)
@@ -66,6 +66,37 @@ results = qal.search_text("الله", normalized=True)
 - `normalized` (bool): Search in normalized text (default: True)
 
 **Returns:** List of matching `QuranVerse` objects
+
+### fuzzy_search(query: str, threshold: float = 0.7, normalized: bool = True, max_results: int = None) → List[FuzzySearchResult]
+
+Perform fuzzy search with partial text matching across all verses. This allows finding verses that contain similar text even if not exact matches.
+
+```python
+# Find partial ayah matches
+results = qal.fuzzy_search("كذلك يجتبيك ربك ويعلمك", threshold=0.8)
+
+# Find repeated phrases
+results = qal.fuzzy_search("فبأي الاء ربكما تكذبان")
+
+# Control similarity threshold
+high_precision = qal.fuzzy_search("بسم الله", threshold=0.95)
+more_results = qal.fuzzy_search("بسم الله", threshold=0.7)
+```
+
+**Parameters:**
+- `query` (str): Arabic text to search for
+- `threshold` (float): Minimum similarity score (0.0-1.0, default: 0.7)
+- `normalized` (bool): Search in normalized text (default: True)
+- `max_results` (int, optional): Maximum number of results to return
+
+**Returns:** List of `FuzzySearchResult` objects sorted by similarity score
+
+**Features:**
+- **Partial text matching**: Finds verses containing part of the query text
+- **Multiple results**: Returns all matches above the similarity threshold
+- **Word-level positions**: Tracks exact word ranges of matches
+- **Configurable precision**: Adjust threshold for stricter or looser matching
+- **Similarity scoring**: Results ranked by relevance (0.0-1.0)
 
 ### get_surah_verses(surah_number: int) → List[QuranVerse]
 
@@ -126,6 +157,43 @@ print(f"Is Basmala: {verse.is_basmalah}")
 - `text` (str): Original Arabic text with diacritics
 - `text_normalized` (str): Normalized Arabic text without diacritics
 - `is_basmalah` (bool): True if this is a Basmala verse
+
+### FuzzySearchResult
+
+Represents a fuzzy search result with partial match information.
+
+```python
+results = qal.fuzzy_search("كذلك يجتبيك ربك ويعلمك")
+for result in results:
+    print(f"Verse: {result.verse.surah_number}:{result.verse.ayah_number}")
+    print(f"Similarity: {result.similarity:.3f}")
+    print(f"Words: {result.start_word}-{result.end_word}")
+    print(f"Matched: {result.matched_text}")
+    print(f"Query: {result.query_text}")
+```
+
+**Attributes:**
+- `verse` (QuranVerse): The matched verse object
+- `start_word` (int): Starting word index of the match (0-based)
+- `end_word` (int): Ending word index of the match (exclusive)
+- `similarity` (float): Similarity score (0.0-1.0)
+- `matched_text` (str): The actual text segment that was matched
+- `query_text` (str): The original query text used for matching
+
+**Usage Examples:**
+```python
+# Find partial ayah matches
+results = qal.fuzzy_search("ويعلمك من تأويل الأحاديث")
+result = results[0]
+
+# Get the exact words that matched
+words = result.verse.text_normalized.split()
+matched_segment = " ".join(words[result.start_word:result.end_word])
+print(f"Matched segment: {matched_segment}")
+
+# Access the full verse
+print(f"Full verse: {result.verse.text}")
+```
 
 ### QuranChapter
 
