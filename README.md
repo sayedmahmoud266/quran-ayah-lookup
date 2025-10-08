@@ -4,18 +4,21 @@
 [![Python Support](https://img.shields.io/pypi/pyversions/quran-ayah-lookup.svg)](https://pypi.org/project/quran-ayah-lookup/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Python package for looking up Quranic ayahs by their number or Arabic text. **Arabic only** - translations are not supported at this time.
+A high-performance Python package for Quranic ayah lookup with **O(1) verse access** and Arabic text normalization. **Arabic only** - translations are not supported at this time.
 
 **Quran Corpus Source**: This package uses the Quran text corpus from [Tanzil.net](https://tanzil.net/), a trusted source for accurate Quranic text.
 
 ## Features
 
-- 🔍 **Arabic Text Search**: Search for ayahs using partial or complete Arabic text
-- 📖 **Ayah Lookup**: Find specific ayahs by surah and ayah number
-- ⚡ **Fast Matching**: Powered by RapidFuzz for efficient fuzzy text matching
+- � **O(1) Performance**: Lightning-fast verse lookup (956x faster than linear search!)
+- 📖 **Ayah Lookup**: Direct access with `db[surah][ayah]` syntax
+- �🔍 **Arabic Text Search**: Search for ayahs using Arabic text
+- 🎯 **Smart Basmala Handling**: Automatic Basmala extraction and organization
+- 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
+- 🏗️ **Chapter-based Structure**: Efficient QuranChapter organization
 - 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
 - 📚 **Tanzil.net Corpus**: Uses trusted Quran text from Tanzil.net
-- 🎯 **Complete Coverage**: Full Quran text database
+- ✨ **Complete Coverage**: Full Quran with 6,348 verses including Basmalas
 
 ## Installation
 
@@ -36,20 +39,82 @@ pip install -e .
 ## Quick Start
 
 ```python
-from quran_ayah_lookup import QuranLookup
+import quran_ayah_lookup as qal
 
-# Initialize the lookup engine
-quran = QuranLookup()
+# Database loads automatically on import
+# ✓ Quran database loaded successfully:
+#   - Total verses: 6348
+#   - Total surahs: 114
+#   - Source: Tanzil.net
 
-# Search by text (implementation coming soon)
-# results = quran.search_text("بسم الله الرحمن الرحيم")
+# O(1) Direct verse access
+verse = qal.get_verse(3, 35)  # Surah Al-Imran, Ayah 35
+print(verse.text)  # Original Arabic text with diacritics
+print(verse.text_normalized)  # Normalized text without diacritics
 
-# Lookup by surah and ayah number (implementation coming soon)
-# ayah = quran.get_ayah(surah=1, ayah=1)
+# Even faster: Direct database access
+db = qal.get_quran_database()
+verse = db[3][35]  # O(1) lookup!
 
-print("Package initialized successfully!")
-print(f"Version: {quran.__version__}")
+# Get entire surah/chapter
+surah = qal.get_surah(3)  # Al-Imran
+basmala = surah[0]        # Basmala (ayah 0)
+first_ayah = surah[1]     # First ayah
+print(f"Surah has {len(surah)} verses")
+
+# Search Arabic text
+results = qal.search_text("الله")
+print(f"Found {len(results)} verses containing 'الله'")
+
+# Check verse existence (O(1))
+if 35 in surah:
+    verse = surah[35]
+
+# Get all verses from a surah
+all_verses = surah.get_all_verses()
 ```
+
+## Performance
+
+### O(1) Lookup Performance
+```
+O(1) lookup (1000x): 0.0006s
+O(n) lookup (1000x): 0.5725s
+Speedup: 956x faster! 🚀
+```
+
+### Database Structure
+- **6,348 total verses** (6,236 original + 112 Basmalas)
+- **114 surahs** with chapter-based organization
+- **Hashmap-based storage** for O(1) access
+- **Smart Basmala handling** for surahs 2-114 (except At-Tawbah)
+
+## API Reference
+
+### Core Functions
+
+```python
+# Verse lookup
+verse = qal.get_verse(surah_number, ayah_number)
+db[surah_number][ayah_number]  # Direct O(1) access
+
+# Surah/Chapter access
+surah = qal.get_surah(surah_number)
+surah[ayah_number]  # O(1) verse access
+len(surah)  # Verse count
+surah.has_basmala()  # Check for Basmala
+
+# Search and utility
+results = qal.search_text(query, normalized=True)
+verses = qal.get_surah_verses(surah_number)
+normalized = qal.normalize_arabic_text(text)
+```
+
+### Data Models
+
+- **`QuranVerse`**: Individual verse with original and normalized text
+- **`QuranChapter`**: Surah container with O(1) verse access
+- **`QuranDatabase`**: Main database with chapter organization
 
 ## Requirements
 
@@ -127,12 +192,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Roadmap
 
-- [ ] Implement Arabic text search functionality
-- [ ] Add ayah lookup by reference
-- [ ] Add fuzzy matching for Arabic text searches
-- [ ] Implement caching for improved performance
-- [ ] Add CLI interface
+### ✅ Completed
+- [x] **O(1) Verse Lookup**: Lightning-fast `db[surah][ayah]` access
+- [x] **Arabic Text Search**: Full-text search across all verses
+- [x] **Smart Basmala Handling**: Automatic extraction and organization
+- [x] **Text Normalization**: Advanced Arabic diacritics removal
+- [x] **Chapter Organization**: Efficient QuranChapter structure
+- [x] **Complete Database**: 6,348 verses with proper indexing
+
+### 🚧 In Progress
+- [ ] Fuzzy matching for Arabic text searches
+- [ ] Advanced search with filters (surah range, verse types)
+- [ ] Performance optimizations and caching
+
+### 📋 Planned
+- [ ] CLI interface for command-line usage
 - [ ] Web API endpoint support
+- [ ] Export functionality (JSON, CSV)
+- [ ] Enhanced documentation and examples
 - [ ] Future: Consider translation support (not currently planned)
 
 ## Support
