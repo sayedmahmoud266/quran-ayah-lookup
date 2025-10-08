@@ -1,17 +1,6 @@
-# Quran Ay## Features
+# Quran Ayah Lookup
 
-- 🚀 **O(1) Performance**: Lightning-fast verse lookup (956x faster than linear search!)
-- 📖 **Ayah Lookup**: Direct access with `db[surah][ayah]` syntax
-- 🔍 **Arabic Text Search**: Search for ayahs using Arabic text
-- 🎯 **Fuzzy Search**: Advanced partial text matching with similarity scoring
-- 🔄 **Repeated Phrases**: Find all occurrences of repeated Quranic phrases
-- 📏 **Word-level Positioning**: Precise match locations within verses
-- 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
-- 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
-- 🏗️ **Chapter-based Structure**: Efficient QuranChapter organization
-- 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
-- 📚 **Tanzil.net Corpus**: Uses trusted Quran text from Tanzil.net
-- ✨ **Complete Coverage**: Full Quran with 6,348 verses including Basmalas[![PyPI version](https://badge.fury.io/py/quran-ayah-lookup.svg)](https://badge.fury.io/py/quran-ayah-lookup)
+[![PyPI version](https://badge.fury.io/py/quran-ayah-lookup.svg)](https://badge.fury.io/py/quran-ayah-lookup)
 [![Python Support](https://img.shields.io/pypi/pyversions/quran-ayah-lookup.svg)](https://pypi.org/project/quran-ayah-lookup/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -21,10 +10,13 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 
 ## Features
 
-- � **O(1) Performance**: Lightning-fast verse lookup (956x faster than linear search!)
+- 🚀 **O(1) Performance**: Lightning-fast verse lookup (956x faster than linear search!)
 - 📖 **Ayah Lookup**: Direct access with `db[surah][ayah]` syntax
-- �🔍 **Arabic Text Search**: Search for ayahs using Arabic text
-- 🎯 **Smart Basmala Handling**: Automatic Basmala extraction and organization
+- 🔍 **Arabic Text Search**: Search for ayahs using Arabic text
+- 🎯 **Fuzzy Search**: Advanced partial text matching with similarity scoring
+- 🔄 **Repeated Phrases**: Find all occurrences of repeated Quranic phrases
+- 📏 **Word-level Positioning**: Precise match locations within verses
+- 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
 - 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
 - 🏗️ **Chapter-based Structure**: Efficient QuranChapter organization
 - 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
