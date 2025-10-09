@@ -73,6 +73,13 @@ check: format lint typecheck test ## Run all checks (format, lint, typecheck, te
 # Build package
 build: ## Build the package
 	@echo "Building package..."
+	@if [ ! -f "$(VENV_NAME)/bin/python" ]; then \
+		echo "Virtual environment not found. Run 'make init' first."; \
+		exit 1; \
+	fi
+	@$(PYTHON_VENV) -c "import build" 2>/dev/null || \
+		(echo "Build module not found. Installing development dependencies..." && \
+		make install-deps-dev)
 	$(PYTHON_VENV) -m build
 	@echo "Package built in dist/"
 
