@@ -22,14 +22,14 @@ init: ## Initialize virtual environment
 	@echo "To activate: source $(VENV_NAME)/bin/activate"
 
 # Install production dependencies
-install:deps: ## Install production dependencies
+install-deps: ## Install production dependencies
 	@echo "Installing production dependencies..."
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements.txt
 	@echo "Production dependencies installed."
 
 # Install development dependencies
-install:deps:dev: ## Install development dependencies
+install-deps-dev: ## Install development dependencies
 	@echo "Installing development dependencies..."
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements-dev.txt
@@ -43,7 +43,7 @@ test: ## Run unit tests
 	@echo "Tests completed."
 
 # Run tests with coverage
-test:coverage: ## Run tests with coverage report
+test-coverage: ## Run tests with coverage report
 	@echo "Running tests with coverage..."
 	$(PYTHON_VENV) -m pytest tests/ --cov=src/quran_ayah_lookup --cov-report=html --cov-report=term
 	@echo "Coverage report generated in htmlcov/"
@@ -90,19 +90,19 @@ clean: ## Clean build artifacts
 	@echo "Cleanup completed."
 
 # Clean everything including virtual environment
-clean:all: clean ## Clean everything including virtual environment
+clean-all: clean ## Clean everything including virtual environment
 	@echo "Removing virtual environment..."
 	rm -rf $(VENV_NAME)
 	@echo "Complete cleanup finished."
 
 # Install package in development mode
-install:dev: ## Install package in development mode
+install-dev: ## Install package in development mode
 	@echo "Installing package in development mode..."
 	$(PIP) install -e .
 	@echo "Package installed in development mode."
 
 # Publish to PyPI (test)
-publish:test: ## Publish to test PyPI
+publish-test: ## Publish to test PyPI
 	@echo "Publishing to test PyPI..."
 	$(PYTHON_VENV) -m twine upload --repository testpypi dist/*
 	@echo "Published to test PyPI."
@@ -114,8 +114,8 @@ publish: ## Publish to PyPI
 	@echo "Published to PyPI."
 
 # Development setup (complete setup for development)
-setup:dev: init install:deps:dev ## Complete development setup
+setup-dev: init install-deps-dev ## Complete development setup
 	@echo "Development environment setup completed!"
 	@echo "To activate the virtual environment: source $(VENV_NAME)/bin/activate"
 
-.PHONY: help init install:deps install:deps:dev test test:coverage format lint typecheck check build clean clean:all install:dev publish:test publish setup:dev
+.PHONY: help init install-deps install-deps-dev test test-coverage format lint typecheck check build clean clean-all install-dev publish-test publish setup-dev

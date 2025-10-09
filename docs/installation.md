@@ -120,7 +120,18 @@ For contributing or development:
 ```bash
 git clone https://github.com/sayedmahmoud266/quran-ayah-lookup.git
 cd quran-ayah-lookup
-make init                # Initialize virtual environment
-make install:deps:dev    # Install development dependencies
-make test               # Run tests (should show 21/21 passing)
+make setup-dev          # Complete development setup (init + install-deps-dev)
+make test               # Run tests (should show 34/34 passing)
+```
+
+For individual commands, use:
+```bash
+make help               # Show all available commands
+make init               # Initialize virtual environment
+make install-deps-dev   # Install development dependencies  
+make test-coverage      # Run tests with coverage report
+make format             # Format code with black
+make lint               # Lint code with flake8
+make typecheck          # Type check with mypy
+make check              # Run all checks
 ```

@@ -148,35 +148,45 @@ cd quran-ayah-lookup
 2. Initialize development environment:
 ```bash
 make init                # Initialize virtual environment
-make install:deps        # Install production dependencies
-make install:deps:dev    # Install development dependencies
+make install-deps        # Install production dependencies
+make install-deps-dev    # Install development dependencies
 ```
 
 3. Run tests:
 ```bash
-make test
+make test                # Run unit tests
+make test-coverage       # Run tests with coverage report
 ```
 
-4. Format code:
+### Available Make Commands
+
+Use `make help` to see all available commands:
+
 ```bash
-black src/
+make help               # Show all available commands
+make init               # Initialize virtual environment  
+make install-deps       # Install production dependencies
+make install-deps-dev   # Install development dependencies
+make install-dev        # Install package in development mode
+make test               # Run unit tests
+make test-coverage      # Run tests with coverage report
+make format             # Format code with black
+make lint               # Lint code with flake8  
+make typecheck          # Type check with mypy
+make check              # Run all checks (format, lint, typecheck, test)
+make build              # Build the package
+make clean              # Clean build artifacts
+make clean-all          # Clean everything including virtual environment
+make setup-dev          # Complete development setup (init + install-deps-dev)
+make publish-test       # Publish to test PyPI
+make publish            # Publish to PyPI
 ```
 
-5. Type checking:
+### Quick Development Setup
+
+For a complete development environment setup:
 ```bash
-mypy src/
-```
-
-### Building the Package
-
-```bash
-python -m build
-```
-
-### Publishing to PyPI
-
-```bash
-python -m twine upload dist/*
+make setup-dev          # Does: init + install-deps-dev
 ```
 
 ## Contributing
