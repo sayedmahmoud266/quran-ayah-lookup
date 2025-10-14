@@ -19,7 +19,8 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 - 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
 - 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
 - 🏗️ **Chapter-based Structure**: Efficient QuranChapter organization
-- 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
+- � **CLI Interface**: Command-line tool with interactive REPL mode (`qal` command)
+- �🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
 - 📚 **Tanzil.net Corpus**: Uses trusted Quran text from Tanzil.net
 - ✨ **Complete Coverage**: Full Quran with 6,348 verses including Basmalas
 
@@ -40,6 +41,8 @@ pip install -e .
 ```
 
 ## Quick Start
+
+### Python API
 
 ```python
 import quran_ayah_lookup as qal
@@ -84,6 +87,139 @@ if 35 in surah:
 
 # Get all verses from a surah
 all_verses = surah.get_all_verses()
+```
+
+### Command Line Interface (CLI)
+
+The package includes a powerful CLI accessible via `quran-ayah-lookup` or `qal` for quick lookups and searches:
+
+#### Get a Specific Verse
+
+```bash
+# Get verse 35 from Surah 3 (Al-Imran)
+qal verse 3 35
+
+# Show only normalized text
+qal verse 3 35 --normalized
+
+# Show only original text with diacritics
+qal verse 3 35 --original
+```
+
+#### Get Surah Information
+
+```bash
+# Show surah information
+qal surah 3
+
+# Show verse count only
+qal surah 3 --count
+
+# List all verses in the surah
+qal surah 3 --list
+```
+
+#### Search for Text
+
+```bash
+# Search for verses containing "الله"
+qal search "الله"
+
+# Limit results to 5
+qal search "الله" --limit 5
+
+# Search in original text (with diacritics)
+qal search "بِسْمِ" --original
+```
+
+#### Fuzzy Search
+
+```bash
+# Fuzzy search with default threshold (0.7)
+qal fuzzy "كذلك يجتبيك ربك ويعلمك"
+
+# Use custom similarity threshold
+qal fuzzy "بسم الله" --threshold 0.9
+
+# Limit fuzzy search results
+qal fuzzy "الله" --limit 10
+```
+
+#### List All Verses in a Surah
+
+```bash
+# List all verses in Surah 1 (Al-Fatiha)
+qal list-verses 1
+
+# List all verses in Surah 114 (An-Nas)
+qal list-verses 114
+```
+
+#### Show Database Statistics
+
+```bash
+# Display Quran database statistics
+qal stats
+```
+
+#### Interactive REPL Mode
+
+Start an interactive Read-Eval-Print Loop session by running the command without any arguments:
+
+```bash
+# Start interactive REPL mode
+qal
+
+# Or use the full command
+quran-ayah-lookup
+```
+
+In REPL mode, you can run commands interactively:
+
+```
+============================================================
+Quran Ayah Lookup - Interactive REPL Mode
+============================================================
+Commands:
+  verse <surah> <ayah>       - Get a specific verse
+  surah <number>             - Get surah information
+  search <query>             - Search for text
+  fuzzy <query>              - Fuzzy search
+  stats                      - Show database stats
+  help                       - Show this help
+  exit / quit / Ctrl+C       - Exit REPL
+============================================================
+
+qal> verse 1 1
+Ayah 1:1
+----------------------------------------
+Original: بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ
+Normalized: بسم الله الرحمن الرحيم
+
+qal> search الله
+Found 2851 verse(s)
+
+qal> stats
+Total surahs: 114
+Total verses: 6348
+
+qal> exit
+Goodbye!
+```
+
+#### Get Help
+
+```bash
+# Show all available commands
+qal --help
+
+# Show help for a specific command
+qal verse --help
+qal search --help
+qal fuzzy --help
+
+# Show version
+qal --version
 ```
 
 ## Performance
@@ -134,6 +270,7 @@ normalized = qal.normalize_arabic_text(text)
 
 - Python 3.8 or higher
 - rapidfuzz >= 3.0.0
+- click >= 8.0.0
 
 ## Development
 
@@ -224,13 +361,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Text Normalization**: Advanced Arabic diacritics removal
 - [x] **Chapter Organization**: Efficient QuranChapter structure
 - [x] **Complete Database**: 6,348 verses with proper indexing
+- [x] **CLI Interface**: Full-featured command-line tool with REPL mode
 
 ### 🚧 In Progress
 - [ ] Advanced search with filters (surah range, verse types)
 - [ ] Performance optimizations and caching
 
 ### 📋 Planned
-- [ ] CLI interface for command-line usage
 - [ ] Web API endpoint support
 - [ ] Export functionality (JSON, CSV)
 - [ ] Enhanced documentation and examples

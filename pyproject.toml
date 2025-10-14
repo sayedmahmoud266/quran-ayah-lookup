@@ -34,7 +34,12 @@ classifiers = [
 ]
 dependencies = [
     "rapidfuzz>=3.0.0",
+    "click>=8.0.0",
 ]
+
+[project.scripts]
+quran-ayah-lookup = "quran_ayah_lookup.cli:main"
+qal = "quran_ayah_lookup.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/sayedmahmoud266/quran-ayah-lookup"
