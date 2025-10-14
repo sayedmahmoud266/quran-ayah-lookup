@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quran-ayah-lookup"
-version = "0.0.1"
+version = "0.0.2"
 description = "A Python package for looking up Quranic ayahs by their number or Arabic text. Uses Quran corpus from Tanzil.net. Arabic only, no translations supported."
 readme = "README.md"
 requires-python = ">=3.8"

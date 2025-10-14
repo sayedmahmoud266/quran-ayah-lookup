@@ -8,11 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Package structure and build configuration
-- Basic package initialization
-- Documentation framework
-- Development environment setup
-- CI/CD pipeline preparation
+- N/A
 
 ### Changed
 - N/A
@@ -28,6 +24,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - N/A
+
+## [0.0.2] - 2025-10-14
+
+### Added
+- **CLI Interface**: Complete command-line interface with Click framework
+  - `qal` and `quran-ayah-lookup` command entry points
+  - Interactive REPL mode with Ctrl+C exit support
+  - All package functions mapped to CLI commands:
+    - `verse <surah> <ayah>` - Get specific verses with optional text normalization
+    - `surah <number>` - Display surah information and verse counts
+    - `search <query>` - Exact substring search across all verses
+    - `fuzzy <query>` - Fuzzy search with similarity scoring and thresholds
+    - `list-verses <surah>` - List all verses in a specific surah
+    - `stats` - Display database statistics
+- **Comprehensive CLI Documentation**: Updated README with CLI usage examples and REPL mode guide
+- **Unit Tests**: 42 comprehensive test cases covering all CLI functionality
+- **Dependencies**: Added Click framework for CLI implementation
+- **Error Handling**: Meaningful error messages and graceful exit handling
+
+### Changed
+- **Package Dependencies**: Added Click >= 8.0.0 to core dependencies
+- **README**: Enhanced with CLI usage section and interactive examples
+- **Build Configuration**: Added console script entry points in pyproject.toml
+
+### Notes
+- CLI provides full access to all package functionality through command line
+- Interactive REPL mode allows continuous queries without restarting
+- All existing functionality remains unchanged and backward compatible
+- Package now supports both programmatic and command-line usage patterns
 
 ## [0.0.1] - 2025-10-09
 
