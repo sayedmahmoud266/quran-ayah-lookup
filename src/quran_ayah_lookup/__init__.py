@@ -8,14 +8,20 @@ Author: Sayed Mahmoud
 Email: foss-support@sayedmahmoud266.website
 """
 
-__version__ = "0.0.1"
-__author__ = "Sayed Mahmoud"
-__email__ = "foss-support@sayedmahmoud266.website"
+
 
 # Import core functionality
 from .models import QuranVerse, QuranChapter, QuranDatabase, FuzzySearchResult
 from .text_utils import normalize_arabic_text
 from .loader import initialize_quran_database, get_quran_database
+from importlib.metadata import version
+
+
+__version__ = version("quran-ayah-lookup")
+__author__ = "Sayed Mahmoud"
+__email__ = "foss-support@sayedmahmoud266.website"
+
+print(f"Quran Ayah Lookup version {__version__} initialized.")
 
 # Initialize the Quran database when package is imported
 _quran_db = initialize_quran_database()

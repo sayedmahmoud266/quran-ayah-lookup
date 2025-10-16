@@ -99,7 +99,7 @@ class DatabaseStatsResponse(BaseModel):
                 "total_surahs": 114,
                 "total_verses": 6348,
                 "source": "Tanzil.net",
-                "version": "0.0.1"
+                "version": __version__
             }
         }
     )
