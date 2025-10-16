@@ -161,6 +161,105 @@ for result in results[:2]:
     print("-" * 50)
 ```
 
+## Multi-Ayah Sliding Window Search
+
+### Searching Text Spanning Multiple Ayahs
+
+```python
+# Search for text that spans multiple consecutive ayahs
+query = "الرحمن علم القران خلق الانسان علمه البيان"
+results = qal.search_sliding_window(query, threshold=80.0)
+
+print(f"Found {len(results)} multi-ayah matches")
+for match in results[:3]:
+    print(f"Reference: {match.get_reference()}")
+    print(f"Similarity: {match.similarity:.1f}%")
+    print(f"Spans {len(match.verses)} verses")
+    
+    # Show all verses in the match
+    for verse in match.verses:
+        print(f"  {verse.surah_number}:{verse.ayah_number} - {verse.text[:60]}...")
+```
+
+### Cross-Surah Matching
+
+```python
+# Find text that crosses surah boundaries
+query = "بسم الله الرحمن الرحيم الحمد لله رب العالمين"
+results = qal.search_sliding_window(query)
+
+for match in results:
+    if match.start_surah != match.end_surah:
+        print(f"Cross-surah match: {match.get_reference()}")
+        print(f"From Surah {match.start_surah} to Surah {match.end_surah}")
+```
+
+### Adjusting Precision
+
+```python
+# High precision (strict matching)
+precise = qal.search_sliding_window(query, threshold=90.0)
+
+# Lower precision (more matches)
+broad = qal.search_sliding_window(query, threshold=75.0)
+
+print(f"Precise search: {len(precise)} results")
+print(f"Broad search: {len(broad)} results")
+```
+
+## Smart Search (Automatic Method Selection)
+
+### Let the Package Choose the Best Method
+
+```python
+# Smart search automatically tries:
+# 1. Exact text search (fastest)
+# 2. Fuzzy search (if exact fails)
+# 3. Sliding window (if fuzzy fails)
+
+result = qal.smart_search("الرحمن الرحيم")
+print(f"Used {result['method']} search")
+print(f"Found {result['count']} results")
+
+# Access results based on method
+if result['method'] == 'exact':
+    for verse in result['results']:
+        print(f"{verse.surah_number}:{verse.ayah_number} - {verse.text}")
+```
+
+### Smart Search for Multi-Ayah Queries
+
+```python
+# Automatically uses sliding window for multi-ayah text
+result = qal.smart_search("الرحمن علم القران خلق الانسان")
+
+if result['method'] == 'sliding_window':
+    print("Used sliding window search for multi-ayah query")
+    for match in result['results']:
+        print(f"{match.get_reference()}: {match.similarity}%")
+```
+
+### Custom Thresholds for Each Method
+
+```python
+# Configure thresholds for fuzzy and sliding window
+result = qal.smart_search(
+    "الحمد لله",
+    threshold=0.8,              # Fuzzy search threshold (0.0-1.0)
+    sliding_threshold=85.0,     # Sliding window threshold (0.0-100.0)
+    max_results=10
+)
+
+# Check which method was used
+methods = {
+    'exact': 'Exact text match',
+    'fuzzy': 'Fuzzy matching',
+    'sliding_window': 'Multi-ayah sliding window',
+    'none': 'No results found'
+}
+print(f"Method: {methods[result['method']]}")
+```
+
 ## Text Normalization
 
 ### Arabic Text Processing
@@ -301,6 +400,22 @@ response = requests.get(
 )
 for result in response.json():
     print(f"Similarity: {result['similarity']:.2f}")
+
+# Sliding window search
+response = requests.get(
+    "http://127.0.0.1:8000/sliding-window",
+    params={"query": "الرحمن علم القران خلق الانسان", "threshold": 80.0}
+)
+for result in response.json():
+    print(f"Reference: {result['reference']}, Similarity: {result['similarity']:.1f}%")
+
+# Smart search (auto-selects method)
+response = requests.get(
+    "http://127.0.0.1:8000/smart-search",
+    params={"query": "الرحمن الرحيم"}
+)
+data = response.json()
+print(f"Used {data['method']} search, found {data['count']} results")
 ```
 
 ### Available Endpoints
@@ -310,6 +425,8 @@ for result in response.json():
 - `GET /surahs/{surah_number}/verses` - Get all verses in surah
 - `GET /search` - Search for verses containing text
 - `GET /fuzzy-search` - Fuzzy search with similarity scoring
+- `GET /sliding-window` - Multi-ayah sliding window search
+- `GET /smart-search` - Smart search (auto-selects best method)
 - `GET /stats` - Database statistics
 - `GET /health` - Health check
 

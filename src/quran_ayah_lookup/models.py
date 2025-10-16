@@ -64,6 +64,58 @@ class FuzzySearchResult:
 
 
 @dataclass
+class MultiAyahMatch:
+    """
+    Represents a match that may span multiple ayahs using sliding window search.
+    
+    Attributes:
+        verses (List[QuranVerse]): List of verses in the match (ordered)
+        similarity (float): Similarity score (0.0-100.0)
+        matched_text (str): The actual text segment that was matched
+        query_text (str): The original query text used for matching
+        start_surah (int): Starting surah number
+        start_ayah (int): Starting ayah number
+        start_word (int): Starting word index within the first ayah (0-based)
+        end_surah (int): Ending surah number
+        end_ayah (int): Ending ayah number
+        end_word (int): Ending word index within the last ayah (exclusive)
+    """
+    verses: List['QuranVerse']
+    similarity: float
+    matched_text: str
+    query_text: str
+    start_surah: int
+    start_ayah: int
+    start_word: int
+    end_surah: int
+    end_ayah: int
+    end_word: int
+    
+    def __str__(self) -> str:
+        if len(self.verses) == 1:
+            return (f"Surah {self.start_surah}:{self.start_ayah} "
+                   f"(similarity: {self.similarity:.1f}, words: {self.start_word}-{self.end_word}) - "
+                   f"{self.matched_text[:60]}...")
+        else:
+            return (f"Surah {self.start_surah}:{self.start_ayah} to {self.end_surah}:{self.end_ayah} "
+                   f"(similarity: {self.similarity:.1f}, {len(self.verses)} ayahs) - "
+                   f"{self.matched_text[:60]}...")
+    
+    def __repr__(self) -> str:
+        return (f"MultiAyahMatch(start={self.start_surah}:{self.start_ayah}, "
+                f"end={self.end_surah}:{self.end_ayah}, similarity={self.similarity:.1f})")
+    
+    def get_reference(self) -> str:
+        """Get a human-readable reference string for this match."""
+        if self.start_surah == self.end_surah and self.start_ayah == self.end_ayah:
+            return f"{self.start_surah}:{self.start_ayah}"
+        elif self.start_surah == self.end_surah:
+            return f"{self.start_surah}:{self.start_ayah}-{self.end_ayah}"
+        else:
+            return f"{self.start_surah}:{self.start_ayah} - {self.end_surah}:{self.end_ayah}"
+
+
+@dataclass
 class QuranChapter:
     """
     Represents a Quran chapter (surah) with O(1) verse lookup.

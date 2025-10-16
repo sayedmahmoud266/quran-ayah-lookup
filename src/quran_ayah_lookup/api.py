@@ -15,10 +15,13 @@ from . import (
     get_surah,
     search_text,
     fuzzy_search,
+    search_sliding_window,
+    smart_search,
     get_surah_verses,
     get_quran_database,
     QuranVerse,
     FuzzySearchResult,
+    MultiAyahMatch,
     __version__,
 )
 
@@ -89,6 +92,90 @@ class FuzzySearchResultResponse(BaseModel):
     similarity: float = Field(..., description="Similarity score (0.0-1.0)")
     matched_text: str = Field(..., description="The actual text segment that was matched")
     query_text: str = Field(..., description="The original query text used for matching")
+
+
+class MultiAyahMatchResponse(BaseModel):
+    """Response model for a multi-ayah match from sliding window search."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "verses": [
+                    {
+                        "surah_number": 55,
+                        "ayah_number": 1,
+                        "text": "ٱلرَّحۡمَـٰنُ",
+                        "text_normalized": "الرحمن",
+                        "is_basmalah": False
+                    },
+                    {
+                        "surah_number": 55,
+                        "ayah_number": 2,
+                        "text": "عَلَّمَ ٱلۡقُرۡءَانَ",
+                        "text_normalized": "علم القران",
+                        "is_basmalah": False
+                    }
+                ],
+                "similarity": 95.5,
+                "matched_text": "الرحمن علم القران",
+                "query_text": "الرحمن علم القران",
+                "start_surah": 55,
+                "start_ayah": 1,
+                "start_word": 0,
+                "end_surah": 55,
+                "end_ayah": 2,
+                "end_word": 2,
+                "reference": "55:1-2"
+            }
+        }
+    )
+
+    verses: List[VerseResponse] = Field(..., description="List of verses in the match (ordered)")
+    similarity: float = Field(..., description="Similarity score (0.0-100.0)")
+    matched_text: str = Field(..., description="The actual text segment that was matched")
+    query_text: str = Field(..., description="The original query text used for matching")
+    start_surah: int = Field(..., description="Starting surah number")
+    start_ayah: int = Field(..., description="Starting ayah number")
+    start_word: int = Field(..., description="Starting word index within the first ayah (0-based)")
+    end_surah: int = Field(..., description="Ending surah number")
+    end_ayah: int = Field(..., description="Ending ayah number")
+    end_word: int = Field(..., description="Ending word index within the last ayah (exclusive)")
+    reference: str = Field(..., description="Human-readable reference string (e.g., '55:1-4')")
+
+
+class SmartSearchResponse(BaseModel):
+    """Response model for smart search results."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "method": "fuzzy",
+                "count": 5,
+                "exact_results": None,
+                "fuzzy_results": [
+                    {
+                        "verse": {
+                            "surah_number": 1,
+                            "ayah_number": 1,
+                            "text": "بِسۡمِ ٱللَّهِ ٱلرَّحۡمَـٰنِ ٱلرَّحِیمِ",
+                            "text_normalized": "بسم الله الرحمن الرحيم",
+                            "is_basmalah": True
+                        },
+                        "start_word": 0,
+                        "end_word": 4,
+                        "similarity": 0.95,
+                        "matched_text": "بسم الله الرحمن الرحيم",
+                        "query_text": "بسم الله"
+                    }
+                ],
+                "sliding_window_results": None
+            }
+        }
+    )
+
+    method: str = Field(..., description="Search method that returned results: 'exact', 'fuzzy', 'sliding_window', or 'none'")
+    count: int = Field(..., description="Total number of results found")
+    exact_results: Optional[List[VerseResponse]] = Field(None, description="Results from exact text search (if method='exact')")
+    fuzzy_results: Optional[List[FuzzySearchResultResponse]] = Field(None, description="Results from fuzzy search (if method='fuzzy')")
+    sliding_window_results: Optional[List[MultiAyahMatchResponse]] = Field(None, description="Results from sliding window search (if method='sliding_window')")
 
 
 class DatabaseStatsResponse(BaseModel):
@@ -177,6 +264,24 @@ def fuzzy_result_to_response(result: FuzzySearchResult) -> FuzzySearchResultResp
     )
 
 
+# Helper function to convert MultiAyahMatch to MultiAyahMatchResponse
+def multi_ayah_match_to_response(match: MultiAyahMatch) -> MultiAyahMatchResponse:
+    """Convert a MultiAyahMatch object to a MultiAyahMatchResponse."""
+    return MultiAyahMatchResponse(
+        verses=[verse_to_response(verse) for verse in match.verses],
+        similarity=match.similarity,
+        matched_text=match.matched_text,
+        query_text=match.query_text,
+        start_surah=match.start_surah,
+        start_ayah=match.start_ayah,
+        start_word=match.start_word,
+        end_surah=match.end_surah,
+        end_ayah=match.end_ayah,
+        end_word=match.end_word,
+        reference=match.get_reference()
+    )
+
+
 @app.get(
     "/",
     summary="API Root",
@@ -196,6 +301,8 @@ async def root():
             "surah_verses": "/surahs/{surah_number}/verses",
             "search": "/search",
             "fuzzy_search": "/fuzzy-search",
+            "sliding_window": "/sliding-window",
+            "smart_search": "/smart-search",
             "stats": "/stats"
         }
     }
@@ -364,6 +471,132 @@ async def fuzzy_search_endpoint(
             max_results=limit
         )
         return [fuzzy_result_to_response(result) for result in results]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get(
+    "/sliding-window",
+    response_model=List[MultiAyahMatchResponse],
+    summary="Sliding window search across multiple ayahs",
+    description="Search for text that may span multiple ayahs using vectorized fuzzy matching",
+    tags=["Search"],
+    responses={
+        200: {"description": "Sliding window search completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid parameters"},
+    }
+)
+async def sliding_window_search_endpoint(
+    query: str = Query(..., min_length=1, description="Arabic text to search for (can span multiple ayahs)"),
+    threshold: float = Query(80.0, ge=0.0, le=100.0, description="Minimum similarity score (0.0-100.0)"),
+    normalized: bool = Query(True, description="Search in normalized text (without diacritics)"),
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return")
+):
+    """
+    Search for text that may span multiple ayahs using a sliding window approach.
+    
+    This endpoint is particularly useful for finding longer passages or quotes that cross
+    ayah or even surah boundaries. It uses vectorized fuzzy matching for efficient searching.
+    
+    - **query**: Arabic text to search for (required, can span multiple ayahs)
+    - **threshold**: Minimum similarity score between 0.0 and 100.0 (default: 80.0)
+    - **normalized**: Whether to search in normalized text without diacritics (default: true)
+    - **limit**: Maximum number of results to return (optional)
+    
+    Returns a list of multi-ayah matches sorted by similarity score, including:
+    - All verses involved in the match
+    - Exact word positions within the first and last ayah
+    - Similarity score (0.0-100.0)
+    - Matched text segment
+    - Human-readable reference (e.g., "55:1-4" or "93:6 - 94:1")
+    
+    **Examples:**
+    - Query: "الرحمن علم القران خلق الانسان علمه البيان" → Returns Surah Ar-Rahman (55:1-4)
+    - Query: "بسم الله الرحمن الرحيم الم ذلك الكتاب" → Returns Surah Al-Baqarah (2:1-2)
+    """
+    try:
+        results = search_sliding_window(
+            query,
+            threshold=threshold,
+            normalized=normalized,
+            max_results=limit
+        )
+        return [multi_ayah_match_to_response(match) for match in results]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get(
+    "/smart-search",
+    response_model=SmartSearchResponse,
+    summary="Intelligent multi-method search",
+    description="Automatically tries multiple search methods to find the best results",
+    tags=["Search"],
+    responses={
+        200: {"description": "Smart search completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid parameters"},
+    }
+)
+async def smart_search_endpoint(
+    query: str = Query(..., min_length=1, description="Arabic text to search for"),
+    fuzzy_threshold: float = Query(0.7, ge=0.0, le=1.0, description="Minimum similarity score for fuzzy search (0.0-1.0)"),
+    sliding_threshold: float = Query(80.0, ge=0.0, le=100.0, description="Minimum similarity score for sliding window (0.0-100.0)"),
+    normalized: bool = Query(True, description="Search in normalized text (without diacritics)"),
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return")
+):
+    """
+    Intelligent search that automatically tries multiple search methods.
+    
+    This endpoint cascades through different search methods in order of precision:
+    1. **Exact text search** (fastest, most precise) - Returns `QuranVerse` objects
+    2. **Fuzzy search** (moderate speed, handles variations) - Returns `FuzzySearchResult` objects
+    3. **Sliding window search** (slower, handles multi-ayah matches) - Returns `MultiAyahMatch` objects
+    
+    The first method that returns results will be used, making this the most convenient
+    endpoint for general search queries.
+    
+    - **query**: Arabic text to search for (required)
+    - **fuzzy_threshold**: Minimum similarity score for fuzzy search (0.0-1.0, default: 0.7)
+    - **sliding_threshold**: Minimum similarity score for sliding window (0.0-100.0, default: 80.0)
+    - **normalized**: Whether to search in normalized text without diacritics (default: true)
+    - **limit**: Maximum number of results to return (optional)
+    
+    Returns a response indicating which method was used and the results:
+    - `method`: The search method that succeeded ('exact', 'fuzzy', 'sliding_window', or 'none')
+    - `count`: Number of results found
+    - Results in the appropriate field based on the method used
+    
+    **Examples:**
+    - Query: "الرحمن الرحيم" → Likely uses exact search (appears many times)
+    - Query: "الرحمن علم القران" → May use fuzzy or sliding window search
+    - Query: "الرحمن علم القران خلق الانسان" → Likely uses sliding window search
+    """
+    try:
+        result = smart_search(
+            query,
+            threshold=fuzzy_threshold,
+            sliding_threshold=sliding_threshold,
+            normalized=normalized,
+            max_results=limit
+        )
+        
+        # Build response based on method used
+        response = SmartSearchResponse(
+            method=result['method'],
+            count=result['count'],
+            exact_results=None,
+            fuzzy_results=None,
+            sliding_window_results=None
+        )
+        
+        if result['method'] == 'exact':
+            response.exact_results = [verse_to_response(verse) for verse in result['results']]
+        elif result['method'] == 'fuzzy':
+            response.fuzzy_results = [fuzzy_result_to_response(r) for r in result['results']]
+        elif result['method'] == 'sliding_window':
+            response.sliding_window_results = [multi_ayah_match_to_response(m) for m in result['results']]
+        
+        return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -367,3 +367,170 @@ def fuzzy_search_text(query: str, verses: list, threshold: float = 0.7,
         results = results[:max_results]
     
     return results
+
+
+def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float = 80.0,
+                                     normalized: bool = True, max_results: int = None) -> list:
+    """
+    Perform sliding window search across multiple ayahs using vectorized fuzzy matching.
+    
+    This function concatenates all verses into a continuous text stream and uses a sliding
+    window approach with vectorized fuzzy matching to find text that may span multiple ayahs.
+    
+    Args:
+        query (str): The text to search for
+        verses (List[QuranVerse]): List of verses to search in (should be ordered)
+        threshold (float): Minimum similarity score (0.0-100.0, default: 80.0)
+        normalized (bool): Whether to search in normalized text (default: True)
+        max_results (int, optional): Maximum number of results to return
+        
+    Returns:
+        List[MultiAyahMatch]: List of multi-ayah matches, sorted by similarity score
+        
+    Examples:
+        >>> # Search for text spanning multiple ayahs
+        >>> db = get_quran_database()
+        >>> all_verses = db.get_all_verses()
+        >>> results = sliding_window_multi_ayah_search(
+        ...     "الرحمن علم القران خلق الانسان علمه البيان",
+        ...     all_verses,
+        ...     threshold=80
+        ... )
+        >>> for match in results:
+        ...     print(f"Found in: {match.get_reference()}")
+        ...     print(f"Similarity: {match.similarity:.1f}")
+    """
+    from rapidfuzz import process, fuzz
+    from .models import MultiAyahMatch
+    
+    if not query.strip() or not verses:
+        return []
+    
+    # Normalize query if needed
+    search_query = normalize_arabic_text(query.strip()) if normalized else query.strip()
+    query_words = search_query.split()
+    query_len = len(query_words)
+    
+    if query_len == 0:
+        return []
+    
+    # Build a continuous text stream with verse boundaries tracked
+    text_segments = []
+    verse_map = []  # Maps each segment index to (verse, word_start, word_end)
+    
+    for verse in verses:
+        verse_text = verse.text_normalized if normalized else verse.text
+        verse_words = verse_text.split()
+        
+        # Store each word segment with verse metadata
+        for word_idx, word in enumerate(verse_words):
+            text_segments.append(word)
+            verse_map.append((verse, word_idx, word_idx + 1))
+    
+    if not text_segments:
+        return []
+    
+    # Create sliding windows with varying sizes
+    # We'll try windows from query_len to query_len * 1.5 to catch matches with some extra words
+    # Limit the number of window sizes to avoid excessive computation
+    windows = []
+    window_metadata = []  # Stores (start_idx, end_idx) in text_segments
+    
+    min_window = query_len
+    max_window = min(int(query_len * 1.5), len(text_segments))
+    
+    # Limit number of window sizes for performance
+    # For long queries, only try a few window sizes
+    if query_len > 20:
+        window_sizes = [query_len, max_window]
+    else:
+        window_sizes = range(min_window, max_window + 1)
+    
+    for window_size in window_sizes:
+        # Skip if window size is too large
+        if window_size > len(text_segments):
+            continue
+            
+        # Create sliding windows with a stride for very long queries
+        # For very long queries (>30 words), use stride of 2-3 to reduce number of windows
+        stride = 1 if query_len <= 30 else min(3, query_len // 10)
+        
+        for start_idx in range(0, len(text_segments) - window_size + 1, stride):
+            end_idx = start_idx + window_size
+            window_text = " ".join(text_segments[start_idx:end_idx])
+            windows.append(window_text)
+            window_metadata.append((start_idx, end_idx))
+    
+    if not windows:
+        return []
+    
+    # Vectorized fuzzy matching using rapidfuzz
+    # Use partial_ratio for substring matching
+    scores = process.cdist([search_query], windows, scorer=fuzz.partial_ratio)[0]
+    
+    # Create list of (index, score) tuples for items above threshold
+    scored_items = [(i, float(scores[i])) for i in range(len(scores)) if scores[i] >= threshold]
+    
+    if not scored_items:
+        return []
+    
+    # Sort by score descending
+    scored_items.sort(key=lambda x: x[1], reverse=True)
+    
+    # Build results
+    results = []
+    seen_ranges = set()  # To avoid duplicate overlapping matches
+    
+    for idx, score in scored_items:
+        start_idx, end_idx = window_metadata[idx]
+        matched_text = windows[idx]
+        
+        # Get verse boundaries
+        start_verse_info = verse_map[start_idx]
+        end_verse_info = verse_map[end_idx - 1]
+        
+        start_verse = start_verse_info[0]
+        start_word_in_verse = start_verse_info[1]
+        end_verse = end_verse_info[0]
+        end_word_in_verse = end_verse_info[2]
+        
+        # Create a range key to avoid duplicates
+        range_key = (start_verse.surah_number, start_verse.ayah_number, 
+                    start_word_in_verse, end_verse.surah_number, 
+                    end_verse.ayah_number, end_word_in_verse)
+        
+        if range_key in seen_ranges:
+            continue
+        
+        seen_ranges.add(range_key)
+        
+        # Collect all verses in this range
+        matched_verses = []
+        current_verse = None
+        
+        for seg_idx in range(start_idx, end_idx):
+            verse_at_seg = verse_map[seg_idx][0]
+            if current_verse is None or verse_at_seg != current_verse:
+                matched_verses.append(verse_at_seg)
+                current_verse = verse_at_seg
+        
+        # Create match result
+        match = MultiAyahMatch(
+            verses=matched_verses,
+            similarity=score,
+            matched_text=matched_text,
+            query_text=search_query,
+            start_surah=start_verse.surah_number,
+            start_ayah=start_verse.ayah_number,
+            start_word=start_word_in_verse,
+            end_surah=end_verse.surah_number,
+            end_ayah=end_verse.ayah_number,
+            end_word=end_word_in_verse
+        )
+        results.append(match)
+        
+        # Limit results if specified
+        if max_results and len(results) >= max_results:
+            break
+    
+    return results

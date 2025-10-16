@@ -14,7 +14,8 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 - 📖 **Ayah Lookup**: Direct access with `db[surah][ayah]` syntax
 - 🔍 **Arabic Text Search**: Search for ayahs using Arabic text
 - 🎯 **Fuzzy Search**: Advanced partial text matching with similarity scoring
-- 🔄 **Repeated Phrases**: Find all occurrences of repeated Quranic phrases
+- 🔄 **Multi-Ayah Search**: Sliding window search for text spanning multiple verses
+- 🧠 **Smart Search**: Automatic method selection for optimal results
 - 📏 **Word-level Positioning**: Precise match locations within verses
 - 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
 - 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
@@ -77,6 +78,15 @@ print(f"Found {len(results)} verses containing 'الله'")
 fuzzy_results = qal.fuzzy_search("كذلك يجتبيك ربك ويعلمك", threshold=0.8)
 for result in fuzzy_results[:3]:
     print(f"Surah {result.verse.surah_number}:{result.verse.ayah_number} (similarity: {result.similarity:.3f})")
+
+# Multi-ayah sliding window search (for text spanning multiple verses)
+multi_results = qal.search_sliding_window("الرحمن علم القران خلق الانسان علمه البيان", threshold=80.0)
+for match in multi_results[:3]:
+    print(f"{match.get_reference()}: {match.similarity:.1f}% similarity")
+
+# Smart search (automatically selects best method)
+smart_result = qal.smart_search("الرحمن الرحيم")
+print(f"Used {smart_result['method']} search, found {smart_result['count']} results")
 
 # Find repeated phrases
 repeated = qal.fuzzy_search("فبأي الاء ربكما تكذبان")
@@ -143,7 +153,34 @@ qal fuzzy "كذلك يجتبيك ربك ويعلمك"
 qal fuzzy "بسم الله" --threshold 0.9
 
 # Limit fuzzy search results
+# Limit fuzzy search results
 qal fuzzy "الله" --limit 10
+```
+
+#### Sliding Window Search (Multi-Ayah)
+
+```bash
+# Search for text spanning multiple ayahs
+qal sliding-window "الرحمن علم القران خلق الانسان علمه البيان"
+
+# Use custom similarity threshold (0.0-100.0)
+qal sliding-window "بسم الله الرحمن الرحيم الحمد لله" --threshold 85.0
+
+# Limit results
+qal sliding-window "الرحمن علم القران" --limit 5
+```
+
+#### Smart Search (Automatic Method Selection)
+
+```bash
+# Let the package choose the best search method
+qal smart-search "الرحمن الرحيم"
+
+# Configure thresholds for each method
+qal smart-search "الحمد لله" --fuzzy-threshold 0.8 --sliding-threshold 85.0
+
+# Limit results
+qal smart-search "بسم الله" --limit 10
 ```
 
 #### List All Verses in a Surah
@@ -186,6 +223,8 @@ Commands:
   surah <number>             - Get surah information
   search <query>             - Search for text
   fuzzy <query>              - Fuzzy search
+  sliding-window <query>     - Multi-ayah sliding window search
+  smart-search <query>       - Smart search (auto-selects method)
   stats                      - Show database stats
   help                       - Show this help
   exit / quit / Ctrl+C       - Exit REPL
@@ -267,6 +306,8 @@ Once the server is running, access the interactive documentation:
 - `GET /surahs/{surah}/verses` - Get all verses in a surah
 - `GET /search?query={text}` - Search for verses
 - `GET /fuzzy-search?query={text}&threshold={0.7}` - Fuzzy search
+- `GET /sliding-window?query={text}&threshold={80.0}` - Multi-ayah sliding window search
+- `GET /smart-search?query={text}` - Smart search (auto-selects method)
 - `GET /stats` - Database statistics
 - `GET /health` - Health check
 
@@ -278,6 +319,15 @@ curl http://127.0.0.1:8000/verses/1/1
 
 # Search (URL-encoded)
 curl "http://127.0.0.1:8000/search?query=%D8%A7%D9%84%D9%84%D9%87&limit=5"
+
+# Fuzzy search
+curl "http://127.0.0.1:8000/fuzzy-search?query=%D8%A8%D8%B3%D9%85%20%D8%A7%D9%84%D9%84%D9%87&threshold=0.8"
+
+# Sliding window search
+curl "http://127.0.0.1:8000/sliding-window?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%B9%D9%84%D9%85%20%D8%A7%D9%84%D9%82%D8%B1%D8%A7%D9%86&threshold=80.0"
+
+# Smart search
+curl "http://127.0.0.1:8000/smart-search?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%A7%D9%84%D8%B1%D8%AD%D9%8A%D9%85"
 
 # Get stats
 curl http://127.0.0.1:8000/stats
@@ -296,6 +346,22 @@ verse = response.json()
 response = requests.get("http://127.0.0.1:8000/search", 
                        params={"query": "الله", "limit": 5})
 results = response.json()
+
+# Fuzzy search
+response = requests.get("http://127.0.0.1:8000/fuzzy-search",
+                       params={"query": "بسم الله", "threshold": 0.8})
+fuzzy_results = response.json()
+
+# Sliding window search
+response = requests.get("http://127.0.0.1:8000/sliding-window",
+                       params={"query": "الرحمن علم القران", "threshold": 80.0})
+sliding_results = response.json()
+
+# Smart search
+response = requests.get("http://127.0.0.1:8000/smart-search",
+                       params={"query": "الرحمن الرحيم"})
+smart_result = response.json()
+print(f"Used {smart_result['method']} search")
 ```
 
 For complete API documentation, see [docs/api.md](docs/api.md#rest-api-reference).

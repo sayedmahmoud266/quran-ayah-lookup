@@ -17,6 +17,15 @@ verse = db[surah][ayah]
 verse = qal.get_verse(surah, ayah)
 surah = qal.get_surah(surah_number)
 results = qal.search_text(query)
+
+# Fuzzy search
+results = qal.fuzzy_search(query, threshold=0.7)
+
+# Multi-ayah sliding window search
+results = qal.search_sliding_window(query, threshold=80.0)
+
+# Smart search (auto-selects best method)
+result = qal.smart_search(query)
 ```
 
 ## Core Functions
@@ -97,6 +106,97 @@ more_results = qal.fuzzy_search("بسم الله", threshold=0.7)
 - **Word-level positions**: Tracks exact word ranges of matches
 - **Configurable precision**: Adjust threshold for stricter or looser matching
 - **Similarity scoring**: Results ranked by relevance (0.0-1.0)
+
+### search_sliding_window(query: str, threshold: float = 80.0, normalized: bool = True, max_results: int = None) → List[MultiAyahMatch]
+
+Search for text that spans multiple consecutive ayahs using a sliding window algorithm with vectorized fuzzy matching.
+
+```python
+# Search for text spanning multiple ayahs
+query = "الرحمن علم القران خلق الانسان علمه البيان"
+results = qal.search_sliding_window(query, threshold=80.0)
+
+# Cross-surah search
+results = qal.search_sliding_window("بسم الله الرحمن الرحيم الحمد لله رب العالمين")
+
+# Adjust precision
+high_precision = qal.search_sliding_window(query, threshold=90.0)
+more_matches = qal.search_sliding_window(query, threshold=75.0)
+```
+
+**Parameters:**
+- `query` (str): Arabic text to search for (can span multiple ayahs)
+- `threshold` (float): Minimum similarity score (0.0-100.0, default: 80.0)
+- `normalized` (bool): Search in normalized text (default: True)
+- `max_results` (int, optional): Maximum number of results to return
+
+**Returns:** List of `MultiAyahMatch` objects sorted by similarity score (highest first)
+
+**Features:**
+- **Multi-ayah matching**: Finds text spanning consecutive verses
+- **Vectorized performance**: Uses rapidfuzz.process.cdist for fast batch matching
+- **Dynamic window sizing**: Adapts window size based on query length
+- **Cross-surah support**: Can match text across surah boundaries
+- **Optimized for long queries**: Uses stride for queries >30 words
+- **Word-level positions**: Tracks exact word ranges across verses
+
+### smart_search(query: str, threshold: float = 0.7, sliding_threshold: float = 80.0, normalized: bool = True, max_results: int = None) → dict
+
+Intelligently search using cascading methods: exact text search → fuzzy search → sliding window search.
+
+```python
+# Automatic method selection
+result = qal.smart_search("الرحمن الرحيم")
+print(f"Used {result['method']} search")
+print(f"Found {result['count']} results")
+
+# Multi-ayah query (automatically uses sliding window)
+result = qal.smart_search("الرحمن علم القران خلق الانسان")
+
+# Custom thresholds
+result = qal.smart_search(
+    "الحمد لله",
+    threshold=0.8,              # Fuzzy search threshold
+    sliding_threshold=85.0,     # Sliding window threshold
+    max_results=10
+)
+
+# Access results based on method used
+if result['method'] == 'exact':
+    for verse in result['results']:
+        print(verse.text)
+elif result['method'] == 'fuzzy':
+    for match in result['results']:
+        print(f"{match.verse.text} (score: {match.similarity})")
+elif result['method'] == 'sliding_window':
+    for match in result['results']:
+        print(f"{match.get_reference()}: {match.similarity}%")
+```
+
+**Parameters:**
+- `query` (str): Arabic text to search for
+- `threshold` (float): Fuzzy search threshold (0.0-1.0, default: 0.7)
+- `sliding_threshold` (float): Sliding window threshold (0.0-100.0, default: 80.0)
+- `normalized` (bool): Search in normalized text (default: True)
+- `max_results` (int, optional): Maximum number of results to return
+
+**Returns:** Dictionary with:
+- `method` (str): Which search method succeeded ('exact', 'fuzzy', 'sliding_window', or 'none')
+- `results` (list): List of results (type depends on method)
+- `count` (int): Number of results found
+
+**Search Strategy:**
+1. **Exact text search**: Tries `search_text()` first (fastest, most precise)
+2. **Fuzzy search**: Falls back to `fuzzy_search()` if exact fails (handles variations)
+3. **Sliding window**: Falls back to `search_sliding_window()` if fuzzy fails (multi-ayah)
+4. **None**: Returns empty results if all methods fail
+
+**Features:**
+- **Automatic optimization**: Uses fastest applicable method
+- **Consistent interface**: Single function for all search types
+- **Method transparency**: Returns which method was used
+- **Flexible configuration**: Separate thresholds for each method
+- **Type-safe results**: Result type matches the method used
 
 ### get_surah_verses(surah_number: int) → List[QuranVerse]
 
@@ -193,6 +293,58 @@ print(f"Matched segment: {matched_segment}")
 
 # Access the full verse
 print(f"Full verse: {result.verse.text}")
+```
+
+### MultiAyahMatch
+
+Represents a match spanning multiple consecutive ayahs from sliding window search.
+
+```python
+results = qal.search_sliding_window("الرحمن علم القران خلق الانسان علمه البيان")
+for match in results:
+    print(f"Reference: {match.get_reference()}")
+    print(f"Similarity: {match.similarity}%")
+    print(f"Verses: {len(match.verses)}")
+    print(f"Start: Surah {match.start_surah}:{match.start_ayah}, word {match.start_word}")
+    print(f"End: Surah {match.end_surah}:{match.end_ayah}, word {match.end_word}")
+    
+    # Access all verses in the match
+    for verse in match.verses:
+        print(f"  {verse.text}")
+```
+
+**Attributes:**
+- `verses` (List[QuranVerse]): List of consecutive verses in the match
+- `start_surah` (int): Starting surah number
+- `start_ayah` (int): Starting ayah number
+- `start_word` (int): Starting word index (0-based)
+- `end_surah` (int): Ending surah number
+- `end_ayah` (int): Ending ayah number
+- `end_word` (int): Ending word index (exclusive)
+- `similarity` (float): Similarity score (0.0-100.0)
+
+**Methods:**
+- `get_reference()` → str: Get formatted reference string (e.g., "55:1-4" or "1:7-2:2")
+
+**Usage Examples:**
+```python
+# Search across multiple ayahs
+results = qal.search_sliding_window("بسم الله الرحمن الرحيم الحمد لله رب العالمين")
+match = results[0]
+
+# Get reference string
+print(match.get_reference())  # "1:1-2" (Surah Al-Fatihah, ayahs 1-2)
+
+# Access individual verses
+for i, verse in enumerate(match.verses):
+    print(f"Verse {i+1}: {verse.text}")
+
+# Get word range information
+total_words = match.end_word - match.start_word
+print(f"Matched {total_words} words")
+
+# Check if match crosses surah boundary
+crosses_surah = match.start_surah != match.end_surah
 ```
 
 ### QuranChapter
@@ -450,6 +602,8 @@ Response:
     "surah_verses": "/surahs/{surah_number}/verses",
     "search": "/search",
     "fuzzy_search": "/fuzzy-search",
+    "sliding_window": "/sliding-window",
+    "smart_search": "/smart-search",
     "stats": "/stats"
   }
 }
@@ -571,6 +725,174 @@ Response:
 ]
 ```
 
+### Sliding Window Search
+
+**GET /sliding-window**
+
+Search for text spanning multiple consecutive ayahs using vectorized fuzzy matching with sliding windows.
+
+Query Parameters:
+- `query` (string, required): Arabic text to search for (can span multiple ayahs)
+- `threshold` (float, optional): Minimum similarity score 0.0-100.0 (default: 80.0)
+- `normalized` (boolean, optional): Search in normalized text (default: true)
+- `limit` (integer, optional): Maximum number of results
+
+```bash
+# Search for multi-ayah text
+curl "http://127.0.0.1:8000/sliding-window?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%B9%D9%84%D9%85%20%D8%A7%D9%84%D9%82%D8%B1%D8%A7%D9%86&threshold=80.0&limit=5"
+```
+
+Response:
+```json
+[
+  {
+    "start_surah": 55,
+    "start_ayah": 1,
+    "start_word": 0,
+    "end_surah": 55,
+    "end_ayah": 4,
+    "end_word": 12,
+    "similarity": 95.5,
+    "reference": "55:1-4",
+    "verse_count": 4,
+    "verses": [
+      {
+        "surah_number": 55,
+        "ayah_number": 1,
+        "text": "ٱلرَّحۡمَـٰنُ",
+        "text_normalized": "الرحمن",
+        "is_basmalah": false
+      },
+      {
+        "surah_number": 55,
+        "ayah_number": 2,
+        "text": "عَلَّمَ ٱلۡقُرۡءَانَ",
+        "text_normalized": "علم القران",
+        "is_basmalah": false
+      }
+    ]
+  }
+]
+```
+
+**Features:**
+- Finds text spanning multiple consecutive verses
+- Uses vectorized matching for performance
+- Can match across surah boundaries
+- Returns complete verse ranges with word positions
+
+### Smart Search
+
+**GET /smart-search**
+
+Intelligently search using cascading methods: exact → fuzzy → sliding window. Automatically selects the best search method.
+
+Query Parameters:
+- `query` (string, required): Arabic text to search for
+- `fuzzy_threshold` (float, optional): Fuzzy search threshold 0.0-1.0 (default: 0.7)
+- `sliding_threshold` (float, optional): Sliding window threshold 0.0-100.0 (default: 80.0)
+- `normalized` (boolean, optional): Search in normalized text (default: true)
+- `limit` (integer, optional): Maximum number of results
+
+```bash
+# Let smart search choose the best method
+curl "http://127.0.0.1:8000/smart-search?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%A7%D9%84%D8%B1%D8%AD%D9%8A%D9%85"
+```
+
+Response:
+```json
+{
+  "method": "exact",
+  "count": 114,
+  "exact_results": [
+    {
+      "surah_number": 1,
+      "ayah_number": 1,
+      "text": "بِسۡمِ ٱللَّهِ ٱلرَّحۡمَـٰنِ ٱلرَّحِیمِ",
+      "text_normalized": "بسم الله الرحمن الرحيم",
+      "is_basmalah": false
+    }
+  ],
+  "fuzzy_results": null,
+  "sliding_window_results": null
+}
+```
+
+**Method Response Examples:**
+
+When using exact search (method="exact"):
+```json
+{
+  "method": "exact",
+  "count": 5,
+  "exact_results": [...],
+  "fuzzy_results": null,
+  "sliding_window_results": null
+}
+```
+
+When using fuzzy search (method="fuzzy"):
+```json
+{
+  "method": "fuzzy",
+  "count": 3,
+  "exact_results": null,
+  "fuzzy_results": [
+    {
+      "verse": {...},
+      "similarity": 0.85,
+      "matched_text": "...",
+      "start_word": 0,
+      "end_word": 4
+    }
+  ],
+  "sliding_window_results": null
+}
+```
+
+When using sliding window (method="sliding_window"):
+```json
+{
+  "method": "sliding_window",
+  "count": 2,
+  "exact_results": null,
+  "fuzzy_results": null,
+  "sliding_window_results": [
+    {
+      "start_surah": 55,
+      "start_ayah": 1,
+      "similarity": 92.5,
+      "reference": "55:1-4",
+      "verses": [...]
+    }
+  ]
+}
+```
+
+When no results found (method="none"):
+```json
+{
+  "method": "none",
+  "count": 0,
+  "exact_results": null,
+  "fuzzy_results": null,
+  "sliding_window_results": null
+}
+```
+
+**Search Strategy:**
+1. **Exact**: Tries exact text search first (fastest)
+2. **Fuzzy**: Falls back to fuzzy search if no exact matches
+3. **Sliding Window**: Falls back to multi-ayah search if fuzzy fails
+4. **None**: Returns empty if all methods fail
+
+**Features:**
+- Automatic method selection for optimal results
+- Single endpoint for all search types
+- Transparent about which method was used
+- Separate threshold controls for each method
+- Type-safe results based on method
+
 ### Database Statistics
 
 **GET /stats**
@@ -652,6 +974,42 @@ response = requests.get(
 fuzzy_results = response.json()
 for result in fuzzy_results:
     print(f"Similarity: {result['similarity']}")
+
+# Sliding window search (multi-ayah)
+response = requests.get(
+    "http://127.0.0.1:8000/sliding-window",
+    params={
+        "query": "الرحمن علم القران خلق الانسان",
+        "threshold": 80.0,
+        "limit": 5
+    }
+)
+sliding_results = response.json()
+for result in sliding_results:
+    print(f"Reference: {result['reference']}, Similarity: {result['similarity']:.1f}%")
+
+# Smart search (automatic method selection)
+response = requests.get(
+    "http://127.0.0.1:8000/smart-search",
+    params={
+        "query": "الرحمن الرحيم",
+        "fuzzy_threshold": 0.8,
+        "sliding_threshold": 85.0
+    }
+)
+smart_result = response.json()
+print(f"Used {smart_result['method']} search, found {smart_result['count']} results")
+
+# Access results based on method
+if smart_result['method'] == 'exact':
+    for verse in smart_result['exact_results'][:3]:
+        print(verse['text'])
+elif smart_result['method'] == 'fuzzy':
+    for match in smart_result['fuzzy_results'][:3]:
+        print(f"Similarity: {match['similarity']}")
+elif smart_result['method'] == 'sliding_window':
+    for match in smart_result['sliding_window_results'][:3]:
+        print(f"Reference: {match['reference']}")
 ```
 
 ### JavaScript/TypeScript
@@ -669,6 +1027,26 @@ const searchParams = new URLSearchParams({
 });
 const searchResponse = await fetch(`http://127.0.0.1:8000/search?${searchParams}`);
 const results = await searchResponse.json();
+
+// Sliding window search
+const slidingParams = new URLSearchParams({
+  query: 'الرحمن علم القران خلق الانسان',
+  threshold: '80.0',
+  limit: '5'
+});
+const slidingResponse = await fetch(`http://127.0.0.1:8000/sliding-window?${slidingParams}`);
+const slidingResults = await slidingResponse.json();
+console.log(`Found ${slidingResults.length} multi-ayah matches`);
+
+// Smart search
+const smartParams = new URLSearchParams({
+  query: 'الرحمن الرحيم',
+  fuzzy_threshold: '0.8',
+  sliding_threshold: '85.0'
+});
+const smartResponse = await fetch(`http://127.0.0.1:8000/smart-search?${smartParams}`);
+const smartResult = await smartResponse.json();
+console.log(`Used ${smartResult.method} search, found ${smartResult.count} results`);
 ```
 
 ## API Features
@@ -681,7 +1059,5 @@ const results = await searchResponse.json();
 - ✅ **OpenAPI Standard**: Standard API specification format
 
 ## Version Information
-
-Current API version: 0.0.1
 
 For the latest API updates, check the [changelog](../CHANGELOG.md).
