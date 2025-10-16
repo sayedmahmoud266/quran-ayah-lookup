@@ -21,7 +21,9 @@ This package provides lightning-fast tools for searching and looking up Quranic 
 - 🎯 **Smart Basmala Handling**: Automatic extraction and organization for surahs 2-114
 - 🔤 **Advanced Text Normalization**: Diacritics removal and Alif normalization
 - 🏗️ **Chapter-based Organization**: Efficient QuranChapter structure for O(1) access
-- 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations)
+- � **CLI Interface**: Command-line tool with interactive REPL mode
+- 🌐 **REST API**: HTTP endpoints with automatic Swagger documentation
+- �🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations)
 - 📚 **Tanzil.net Corpus**: Trusted Quran text source
 
 ## Getting Help

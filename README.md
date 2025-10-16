@@ -19,8 +19,9 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 - 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
 - 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
 - 🏗️ **Chapter-based Structure**: Efficient QuranChapter organization
-- � **CLI Interface**: Command-line tool with interactive REPL mode (`qal` command)
-- �🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
+- 💻 **CLI Interface**: Command-line tool with interactive REPL mode (`qal` command)
+- 🌐 **REST API**: HTTP endpoints with Swagger documentation (`qal serve`)
+- 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
 - 📚 **Tanzil.net Corpus**: Uses trusted Quran text from Tanzil.net
 - ✨ **Complete Coverage**: Full Quran with 6,348 verses including Basmalas
 
@@ -222,6 +223,83 @@ qal fuzzy --help
 qal --version
 ```
 
+## REST API
+
+The package includes a REST API server that exposes all functionalities via HTTP endpoints with automatic Swagger documentation.
+
+### Starting the API Server
+
+```bash
+# Start server (default: http://127.0.0.1:8000)
+qal serve
+
+# Custom host and port
+qal serve --host 0.0.0.0 --port 8080
+
+# Development mode with auto-reload
+qal serve --reload
+```
+
+### Installation
+
+Install with API support:
+
+```bash
+pip install "quran-ayah-lookup[api]"
+```
+
+Or install dependencies separately:
+
+```bash
+pip install fastapi uvicorn[standard]
+```
+
+### API Documentation
+
+Once the server is running, access the interactive documentation:
+- **Swagger UI**: http://127.0.0.1:8000/docs
+- **ReDoc**: http://127.0.0.1:8000/redoc
+
+### Available Endpoints
+
+- `GET /verses/{surah}/{ayah}` - Get a specific verse
+- `GET /surahs/{surah}` - Get surah information
+- `GET /surahs/{surah}/verses` - Get all verses in a surah
+- `GET /search?query={text}` - Search for verses
+- `GET /fuzzy-search?query={text}&threshold={0.7}` - Fuzzy search
+- `GET /stats` - Database statistics
+- `GET /health` - Health check
+
+### Quick API Example
+
+```bash
+# Get a verse
+curl http://127.0.0.1:8000/verses/1/1
+
+# Search (URL-encoded)
+curl "http://127.0.0.1:8000/search?query=%D8%A7%D9%84%D9%84%D9%87&limit=5"
+
+# Get stats
+curl http://127.0.0.1:8000/stats
+```
+
+Using Python:
+
+```python
+import requests
+
+# Get verse
+response = requests.get("http://127.0.0.1:8000/verses/1/1")
+verse = response.json()
+
+# Search
+response = requests.get("http://127.0.0.1:8000/search", 
+                       params={"query": "الله", "limit": 5})
+results = response.json()
+```
+
+For complete API documentation, see [docs/api.md](docs/api.md#rest-api-reference).
+
 ## Performance
 
 ### O(1) Lookup Performance
@@ -268,9 +346,16 @@ normalized = qal.normalize_arabic_text(text)
 
 ## Requirements
 
+### Core Requirements
 - Python 3.8 or higher
 - rapidfuzz >= 3.0.0
 - click >= 8.0.0
+
+### Optional (for REST API)
+- fastapi >= 0.104.0
+- uvicorn[standard] >= 0.24.0
+
+Install with: `pip install "quran-ayah-lookup[api]"`
 
 ## Development
 

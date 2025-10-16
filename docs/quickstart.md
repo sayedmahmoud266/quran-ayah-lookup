@@ -218,8 +218,106 @@ except ValueError as e:
     print(f"Error: {e}")
 ```
 
+---
+
+## REST API Usage
+
+The package includes a REST API server for accessing all functionalities via HTTP endpoints.
+
+### Starting the API Server
+
+```bash
+# Start server on default port (8000)
+qal serve
+
+# Custom port
+qal serve --port 8080
+
+# Make server publicly accessible
+qal serve --host 0.0.0.0 --port 80
+
+# Development mode with auto-reload
+qal serve --reload
+```
+
+### Installation
+
+Install API dependencies:
+
+```bash
+pip install "quran-ayah-lookup[api]"
+```
+
+Or install separately:
+
+```bash
+pip install fastapi uvicorn[standard]
+```
+
+### Accessing the API
+
+Once started, the API is available at:
+- **API Root**: `http://127.0.0.1:8000/`
+- **Interactive Docs**: `http://127.0.0.1:8000/docs`
+- **Alternative Docs**: `http://127.0.0.1:8000/redoc`
+
+### Quick API Examples
+
+#### Using cURL
+
+```bash
+# Get a verse
+curl http://127.0.0.1:8000/verses/1/1
+
+# Search for text (URL-encoded)
+curl "http://127.0.0.1:8000/search?query=%D8%A7%D9%84%D9%84%D9%87&limit=5"
+
+# Get database stats
+curl http://127.0.0.1:8000/stats
+```
+
+#### Using Python requests
+
+```python
+import requests
+
+# Get a verse
+response = requests.get("http://127.0.0.1:8000/verses/1/1")
+verse = response.json()
+print(verse["text"])
+
+# Search for text
+response = requests.get(
+    "http://127.0.0.1:8000/search",
+    params={"query": "الله", "limit": 5}
+)
+results = response.json()
+print(f"Found {len(results)} verses")
+
+# Fuzzy search
+response = requests.get(
+    "http://127.0.0.1:8000/fuzzy-search",
+    params={"query": "بسم الله", "threshold": 0.8}
+)
+for result in response.json():
+    print(f"Similarity: {result['similarity']:.2f}")
+```
+
+### Available Endpoints
+
+- `GET /verses/{surah_number}/{ayah_number}` - Get specific verse
+- `GET /surahs/{surah_number}` - Get surah information
+- `GET /surahs/{surah_number}/verses` - Get all verses in surah
+- `GET /search` - Search for verses containing text
+- `GET /fuzzy-search` - Fuzzy search with similarity scoring
+- `GET /stats` - Database statistics
+- `GET /health` - Health check
+
+For complete API documentation, see the [REST API Reference](api.md#rest-api-reference) or visit `/docs` when the server is running.
+
 ## Next Steps
 
 1. Check out the [API Reference](api.md) for detailed documentation
-2. Read the [Contributing Guidelines](../CONTRIBUTING.md) if you want to contribute
-3. Browse the source code on [GitHub](https://github.com/sayedmahmoud266/quran-ayah-lookup)
+2. Try the [REST API](api.md#rest-api-reference) for HTTP-based access
+3. Read the [Contributing Guidelines](../CONTRIBUTING.md) if you want to contribute
+4. Browse the source code on [GitHub](https://github.com/sayedmahmoud266/quran-ayah-lookup)

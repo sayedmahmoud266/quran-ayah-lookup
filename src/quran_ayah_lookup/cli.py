@@ -221,6 +221,53 @@ def show_stats():
         sys.exit(1)
 
 
+@cli.command(name="serve")
+@click.option("--host", "-h", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
+@click.option("--port", "-p", type=int, default=8000, help="Port to bind to (default: 8000)")
+@click.option("--reload", "-r", is_flag=True, help="Enable auto-reload for development")
+def serve_api(host: str, port: int, reload: bool):
+    """
+    Start the REST API server.
+    
+    The API provides RESTful endpoints for all package functionalities including
+    verse lookup, text search, fuzzy search, and database statistics.
+    
+    Examples:
+        qal serve                          # Start server on default host:port
+        qal serve --port 8080              # Start server on custom port
+        qal serve --host 0.0.0.0 --port 80 # Make server publicly accessible
+        qal serve --reload                 # Start with auto-reload for development
+    """
+    try:
+        click.echo("Starting Quran Ayah Lookup API Server...")
+        click.echo("=" * 60)
+        click.echo(f"Host: {host}")
+        click.echo(f"Port: {port}")
+        click.echo(f"Reload: {'Enabled' if reload else 'Disabled'}")
+        click.echo("=" * 60)
+        click.echo(f"API Documentation: http://{host}:{port}/docs")
+        click.echo(f"API Root: http://{host}:{port}/")
+        click.echo("=" * 60)
+        click.echo("Press Ctrl+C to stop the server")
+        click.echo()
+        
+        # Import and run the API server
+        try:
+            from .api import run_server
+            run_server(host=host, port=port, reload=reload)
+        except ImportError as e:
+            click.echo(f"Error: Failed to import API module. Make sure FastAPI and uvicorn are installed.", err=True)
+            click.echo(f"Install with: pip install fastapi uvicorn[standard]", err=True)
+            click.echo(f"Details: {e}", err=True)
+            sys.exit(1)
+            
+    except KeyboardInterrupt:
+        click.echo("\n\nServer stopped.")
+    except Exception as e:
+        click.echo(f"Error starting server: {e}", err=True)
+        sys.exit(1)
+
+
 def repl_mode():
     """Interactive REPL mode for the CLI."""
     click.echo("=" * 60)
