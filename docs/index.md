@@ -1,21 +1,6 @@
 # Documentation
-Welcome to the Quran Ayah Lookup documentation 
 
-## Features
-
-- 🚀 **O(1) Performance**: 956x faster than linear search with `db[surah][ayah]` syntax
-- 📖 **Complete Quran Database**: 6,348 verses including smart Basmala handling
-- 🔍 **Arabic Text Search**: Full-text search across all verses  
-- 🎯 **Fuzzy Search**: Partial text matching with configurable similarity thresholds
-- 🔄 **Multi-Ayah Search**: Sliding window search for text spanning multiple verses
-- 🧠 **Smart Search**: Automatic method selection for optimal results
-- 🎯 **Smart Basmala Handling**: Automatic extraction and organization for surahs 2-114
-- 🔤 **Advanced Text Normalization**: Diacritics removal and Alif normalization
-- 🏗️ **Chapter-based Organization**: Efficient QuranChapter structure for O(1) access
-- 💻 **CLI Interface**: Command-line tool with interactive REPL mode
-- 🌐 **REST API**: HTTP endpoints with automatic Swagger documentation
-- 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations)
-- 📚 **Tanzil.net Corpus**: Trusted Quran text source the Quran Ayah Lookup documentation - a high-performance Python package with **O(1) verse access**.
+Welcome to the Quran Ayah Lookup documentation - a high-performance Python package with **O(1) verse access** and **207x faster multi-ayah search**.
 
 ## Table of Contents
 
@@ -31,14 +16,20 @@ This package provides lightning-fast tools for searching and looking up Quranic 
 ## Features
 
 - 🚀 **O(1) Performance**: 956x faster than linear search with `db[surah][ayah]` syntax
+- ⚡ **207x Faster Sliding Window**: New alignment-based algorithm (54ms vs 11s per query!)
+- 💾 **Performance Cache**: Pre-computed corpus and word lists for optimal speed
+- 📊 **Basmalah-Aware Counting**: Precise verse counts with/without Basmalas
+- 🎯 **Absolute Indexing**: O(1) access to any verse by absolute position (0-6347)
 - 📖 **Complete Quran Database**: 6,348 verses including smart Basmala handling
-- 🔍 **Arabic Text Search**: Full-text search across all verses  
-- 🎯 **Smart Basmala Handling**: Automatic extraction and organization for surahs 2-114
+- 🔍 **Arabic Text Search**: Full-text search across all verses
+- 🎯 **Fuzzy Search**: Partial text matching with configurable similarity thresholds
+- 🔄 **Multi-Ayah Search**: Sliding window search for text spanning multiple verses
+- 🧠 **Smart Search**: Automatic method selection for optimal results
 - 🔤 **Advanced Text Normalization**: Diacritics removal and Alif normalization
 - 🏗️ **Chapter-based Organization**: Efficient QuranChapter structure for O(1) access
-- � **CLI Interface**: Command-line tool with interactive REPL mode
+- 💻 **CLI Interface**: Command-line tool with interactive REPL mode
 - 🌐 **REST API**: HTTP endpoints with automatic Swagger documentation
-- �🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations)
+- 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations)
 - 📚 **Tanzil.net Corpus**: Trusted Quran text source
 
 ## Getting Help

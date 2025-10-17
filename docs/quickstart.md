@@ -9,9 +9,101 @@ import quran_ayah_lookup as qal
 
 # Database loads automatically on import
 # ✓ Quran database loaded successfully:
-#   - Total verses: 6348  
+#   - Total verses: 6348
 #   - Total surahs: 114
 #   - Source: Tanzil.net
+```
+
+## Performance Features
+
+### ⚡ 207x Faster Sliding Window Search
+
+The latest version includes a major performance breakthrough with an alignment-based sliding window algorithm:
+
+```python
+import quran_ayah_lookup as qal
+
+# Load database (cache is enabled by default for optimal speed)
+db = qal.load_quran_db()
+
+# Multi-ayah search - now 207x faster!
+query = "الرحمن علم القران خلق الانسان علمه البيان"
+results = qal.search_sliding_window(query, threshold=80.0, max_results=5, db=db)
+
+for result in results:
+    print(f"Match: {result.get_reference()}")
+    print(f"Similarity: {result.similarity:.1f}%")
+    print()
+
+# Performance: ~54ms per query (was ~11,150ms) = 207x improvement!
+```
+
+### 💾 Performance Cache System
+
+Control the cache system for optimal performance or minimal memory footprint:
+
+```python
+import quran_ayah_lookup as qal
+
+# Check if cache is enabled (default: True)
+print(f"Cache enabled: {qal.__enable_cache__}")
+
+# Disable cache for minimal memory usage
+qal.__enable_cache__ = False
+db = qal.load_quran_db()  # No cache, slower sliding window
+
+# Re-enable cache for best performance
+qal.__enable_cache__ = True
+db = qal.load_quran_db()  # With cache, 28% faster sliding window
+```
+
+**Cache Performance:**
+
+- With cache: ~54ms per sliding window query
+- Without cache: ~69ms per sliding window query
+- Cache speedup: ~28% faster
+
+### 📊 Basmalah-Aware Counting
+
+Get precise verse counts with or without Basmalas:
+
+```python
+import quran_ayah_lookup as qal
+
+db = qal.load_quran_db()
+
+# Total verses including Basmalas (default)
+total_with = db.get_verse_count(include_basmalah=True)
+print(f"Total with Basmalas: {total_with}")  # 6,348
+
+# Total verses without Basmalas
+total_without = db.get_verse_count(include_basmalah=False)
+print(f"Total without Basmalas: {total_without}")  # 6,236
+
+# Get all verses (includes Basmalas by default)
+all_verses = db.get_all_verses()
+print(f"Retrieved {len(all_verses)} verses")  # 6,348
+```
+
+### 🎯 Absolute Indexing
+
+Access any verse by its absolute position (0-6347):
+
+```python
+import quran_ayah_lookup as qal
+
+db = qal.load_quran_db()
+
+# Get verse by absolute index (O(1) lookup)
+first_verse = db.get_verse_by_absolute_index(0)  # 1:1
+last_verse = db.get_verse_by_absolute_index(6347)  # 114:6
+
+print(f"First: {first_verse.surah}:{first_verse.ayah}")
+print(f"Last: {last_verse.surah}:{last_verse.ayah}")
+
+# Convert between absolute and (surah, ayah) coordinates
+absolute_idx = db.verse_to_absolute_index(1, 1)  # Returns 0
+surah, ayah = db.absolute_index_to_verse(0)  # Returns (1, 1)
 ```
 
 ## O(1) Verse Lookup
@@ -54,7 +146,7 @@ verse_35 = surah[35]      # Any specific ayah
 # Check if verse exists (O(1))
 if 35 in surah:
     verse = surah[35]
-    
+
 # Get all verses as a list
 all_verses = surah.get_all_verses()
 print(f"Retrieved {len(all_verses)} verses")
@@ -153,7 +245,7 @@ for result in results[:2]:
     # Get the exact matched segment
     words = result.verse.text_normalized.split()
     matched_segment = " ".join(words[result.start_word:result.end_word])
-    
+
     print(f"Query: {result.query_text}")
     print(f"Matched: {matched_segment}")
     print(f"Full verse: {result.verse.text}")
@@ -175,7 +267,7 @@ for match in results[:3]:
     print(f"Reference: {match.get_reference()}")
     print(f"Similarity: {match.similarity:.1f}%")
     print(f"Spans {len(match.verses)} verses")
-    
+
     # Show all verses in the match
     for verse in match.verses:
         print(f"  {verse.surah_number}:{verse.ayah_number} - {verse.text[:60]}...")
@@ -312,7 +404,7 @@ except ValueError as e:
     print(f"Error: {e}")
 
 try:
-    verse = surah[999]  # Invalid ayah  
+    verse = surah[999]  # Invalid ayah
 except ValueError as e:
     print(f"Error: {e}")
 ```
@@ -356,6 +448,7 @@ pip install fastapi uvicorn[standard]
 ### Accessing the API
 
 Once started, the API is available at:
+
 - **API Root**: `http://127.0.0.1:8000/`
 - **Interactive Docs**: `http://127.0.0.1:8000/docs`
 - **Alternative Docs**: `http://127.0.0.1:8000/redoc`
