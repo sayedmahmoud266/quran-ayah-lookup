@@ -143,16 +143,27 @@ class QuranChapter:
         """Get all verses in this chapter as a list, ordered by ayah number."""
         return [self.ayahs[ayah_num] for ayah_num in sorted(self.ayahs.keys())]
     
-    def get_verse_count(self) -> int:
-        """Get the total number of verses in this chapter."""
-        return len(self.ayahs)
+    def get_verse_count(self, include_basmalah: bool = False) -> int:
+        """
+        Get the total number of verses in this chapter.
+        
+        Args:
+            include_basmalah: Whether to include Basmala in the count (default: False)
+        
+        Returns:
+            Total number of verses
+        """
+        total = len(self.ayahs)
+        if not include_basmalah and self.has_basmala():
+            total -= 1
+        return total
     
     def has_basmala(self) -> bool:
         """Check if this chapter has a Basmala (ayah 0)."""
         return 0 in self.ayahs and self.ayahs[0].is_basmalah
     
     def __len__(self) -> int:
-        return len(self.ayahs)
+        return self.get_verse_count(include_basmalah=False)
     
     def __contains__(self, ayah_number: int) -> bool:
         return ayah_number in self.ayahs
@@ -175,11 +186,26 @@ class QuranDatabase:
     Attributes:
         surahs (Dict[int, QuranChapter]): Dictionary mapping surah number to chapter for O(1) lookup
         total_verses (int): Total number of verses (including Basmalas)
+        total_verses_without_basmalah (int): Total number of verses excluding Basmalas
         total_surahs (int): Total number of surahs (114)
+        sorted_surahs_ref_list (List[int]): Pre-sorted list of surah numbers for performance
+        sorted_ayahs_ref_list (List[tuple]): Pre-sorted list of (surah_num, ayah_num) tuples for absolute indexing
+        corpus_combined_text (str): Complete Quran text (with diacritics) as one string
+        corpus_combined_text_normalized (str): Complete Quran text (normalized) as one string
+        corpus_words_list (List[str]): All words from the Quran (with diacritics) in order
+        corpus_words_list_normalized (List[str]): All words from the Quran (normalized) in order
     """
     surahs: Dict[int, QuranChapter] = field(default_factory=dict)
     total_verses: int = 0
+    total_verses_without_basmalah: int = 0
     total_surahs: int = 114
+    sorted_surahs_ref_list: List[int] = field(default_factory=list)
+    sorted_ayahs_ref_list: List[tuple] = field(default_factory=list)
+    corpus_combined_text: str = ""
+    corpus_combined_text_normalized: str = ""
+    corpus_words_list: List[str] = field(default_factory=list)
+    corpus_words_list_normalized: List[str] = field(default_factory=list)
+    _cache_enabled: bool = False
     
     def add_verse(self, verse: QuranVerse) -> None:
         """Add a verse to the database, creating chapter if needed."""
@@ -188,6 +214,48 @@ class QuranDatabase:
         
         self.surahs[verse.surah_number].add_verse(verse)
         self.total_verses += 1
+        
+        # Count verses without basmalah
+        if not verse.is_basmalah:
+            self.total_verses_without_basmalah += 1
+    
+    def finalize_cache(self) -> None:
+        """
+        Finalize the database by building cache structures for performance.
+        Should be called after all verses are added.
+        """
+        # Build sorted surahs reference list
+        self.sorted_surahs_ref_list = sorted(self.surahs.keys())
+        
+        # Build sorted ayahs reference list
+        self.sorted_ayahs_ref_list = []
+        for surah_num in self.sorted_surahs_ref_list:
+            for ayah_num in sorted(self.surahs[surah_num].ayahs.keys()):
+                self.sorted_ayahs_ref_list.append((surah_num, ayah_num))
+        
+        # Build combined corpus text
+        text_parts = []
+        text_normalized_parts = []
+        words = []
+        words_normalized = []
+        
+        for surah_num in self.sorted_surahs_ref_list:
+            surah = self.surahs[surah_num]
+            for ayah_num in sorted(surah.ayahs.keys()):
+                verse = surah.ayahs[ayah_num]
+                text_parts.append(verse.text)
+                text_normalized_parts.append(verse.text_normalized)
+                
+                # Split into words
+                words.extend(verse.text.split())
+                words_normalized.extend(verse.text_normalized.split())
+        
+        self.corpus_combined_text = " ".join(text_parts)
+        self.corpus_combined_text_normalized = " ".join(text_normalized_parts)
+        self.corpus_words_list = words
+        self.corpus_words_list_normalized = words_normalized
+        
+        self._cache_enabled = True
     
     def get_verse(self, surah_number: int, ayah_number: int) -> QuranVerse:
         """Get a specific verse by surah and ayah number (O(1) operation)."""
@@ -207,10 +275,16 @@ class QuranDatabase:
     
     def get_all_verses(self) -> List[QuranVerse]:
         """Get all verses in the database as a list, ordered by surah and ayah number."""
-        all_verses = []
-        for surah_num in sorted(self.surahs.keys()):
-            all_verses.extend(self.surahs[surah_num].get_all_verses())
-        return all_verses
+        if self._cache_enabled and self.sorted_ayahs_ref_list:
+            # Use cached sorted list for better performance
+            return [self.get_verse(surah_num, ayah_num) 
+                    for surah_num, ayah_num in self.sorted_ayahs_ref_list]
+        else:
+            # Fall back to sorting on-demand
+            all_verses = []
+            for surah_num in sorted(self.surahs.keys()):
+                all_verses.extend(self.surahs[surah_num].get_all_verses())
+            return all_verses
     
     def search_text(self, query: str, normalized: bool = True) -> List[QuranVerse]:
         """
@@ -254,8 +328,20 @@ class QuranDatabase:
         """Get the total number of surahs in the database."""
         return len(self.surahs)
     
+    def get_verse_count(self, include_basmalah: bool = False) -> int:
+        """
+        Get the total number of verses in the database.
+        
+        Args:
+            include_basmalah: Whether to include Basmalas in the count (default: False)
+        
+        Returns:
+            Total number of verses
+        """
+        return self.total_verses if include_basmalah else self.total_verses_without_basmalah
+    
     def __len__(self) -> int:
-        return self.total_verses
+        return self.get_verse_count(include_basmalah=False)
     
     def __contains__(self, surah_number: int) -> bool:
         return surah_number in self.surahs

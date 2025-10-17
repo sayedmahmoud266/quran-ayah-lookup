@@ -113,7 +113,10 @@ def test_get_surah_chapter():
     # Test getting all verses
     all_verses = surah.get_all_verses()
     assert isinstance(all_verses, list)
-    assert len(all_verses) == len(surah)
+    # get_all_verses() includes Basmala if present, but len(surah) doesn't
+    # So we need to account for that
+    expected_count = len(surah) + (1 if surah.has_basmala() else 0)
+    assert len(all_verses) == expected_count
     
     # Test contains check
     assert 35 in surah

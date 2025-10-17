@@ -20,6 +20,7 @@ from importlib.metadata import version
 __version__ = version("quran-ayah-lookup")
 __author__ = "Sayed Mahmoud"
 __email__ = "foss-support@sayedmahmoud266.website"
+__enable_cache__ = True
 
 print(f"Quran Ayah Lookup version {__version__} initialized.")
 
@@ -176,8 +177,9 @@ def search_sliding_window(query: str, threshold: float = 80.0, normalized: bool 
     """
     from .text_utils import sliding_window_multi_ayah_search
     
-    all_verses = get_quran_database().get_all_verses()
-    return sliding_window_multi_ayah_search(query, all_verses, threshold, normalized, max_results)
+    db = get_quran_database()
+    all_verses = db.get_all_verses()
+    return sliding_window_multi_ayah_search(query, all_verses, threshold, normalized, max_results, db=db)
 
 
 def smart_search(query: str, threshold: float = 0.7, sliding_threshold: float = 80.0,
