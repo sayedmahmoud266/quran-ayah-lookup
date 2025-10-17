@@ -176,13 +176,22 @@ def initialize_quran_database() -> QuranDatabase:
     global _quran_database
     
     if _quran_database is None:
+        # Import here to avoid circular imports
+        from . import __enable_cache__
+        
         loader = QuranLoader()
         _quran_database = loader.load_quran_data()
+        
+        # Finalize cache structures if caching is enabled
+        if __enable_cache__:
+            _quran_database.finalize_cache()
         
         print(f"✓ Quran database loaded successfully:")
         print(f"  - Total verses: {_quran_database.total_verses}")
         print(f"  - Total surahs: {_quran_database.total_surahs}")
         print(f"  - Source: Tanzil.net")
+        if __enable_cache__:
+            print(f"  - Performance cache: enabled")
     
     return _quran_database
 

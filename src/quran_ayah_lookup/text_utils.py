@@ -2,6 +2,10 @@
 Text processing utilities for Arabic Quran text normalization.
 """
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import QuranDatabase
 
 
 # Arabic diacritics and special signs to be removed
@@ -113,9 +117,14 @@ def normalize_arabic_text(text: str) -> str:
     # This catches any diacritics we might have missed
     normalized = re.sub(r'[\u064B-\u065F\u0670\u06D6-\u06ED\u08F0-\u08FF]', '', normalized)
     
-    # Normalize Alif wasla (ٱ) to regular Alif (ا)
+    # Normalize Alif wasla (ٱ), Alif Hamza up (أ) and Alif Hamza down (إ) to regular Alif (ا)
     normalized = normalized.replace('\u0671', '\u0627')  # ٱ → ا
+    normalized = normalized.replace('\u0623', '\u0627')  # أ → ا
+    normalized = normalized.replace('\u0625', '\u0627')  # إ → ا
     
+    # Normalize Waw with space after it to just waw " و " to " و" using unicode characters
+    normalized = normalized.replace(' \u0648 ', ' \u0648')  # space + و + space → space + و
+
     # Clean up extra whitespace
     normalized = ' '.join(normalized.split())
     
@@ -370,12 +379,16 @@ def fuzzy_search_text(query: str, verses: list, threshold: float = 0.7,
 
 
 def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float = 80.0,
-                                     normalized: bool = True, max_results: int = None) -> list:
+                                     normalized: bool = True, max_results: int = None,
+                                     db: 'QuranDatabase' = None) -> list:
     """
     Perform sliding window search across multiple ayahs using vectorized fuzzy matching.
     
     This function concatenates all verses into a continuous text stream and uses a sliding
     window approach with vectorized fuzzy matching to find text that may span multiple ayahs.
+    
+    When a QuranDatabase instance with cache enabled is provided, this function uses
+    pre-computed corpus text and word lists for significantly better performance.
     
     Args:
         query (str): The text to search for
@@ -383,6 +396,7 @@ def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float 
         threshold (float): Minimum similarity score (0.0-100.0, default: 80.0)
         normalized (bool): Whether to search in normalized text (default: True)
         max_results (int, optional): Maximum number of results to return
+        db (QuranDatabase, optional): QuranDatabase instance for cache access
         
     Returns:
         List[MultiAyahMatch]: List of multi-ayah matches, sorted by similarity score
@@ -394,130 +408,144 @@ def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float 
         >>> results = sliding_window_multi_ayah_search(
         ...     "الرحمن علم القران خلق الانسان علمه البيان",
         ...     all_verses,
-        ...     threshold=80
+        ...     threshold=80,
+        ...     db=db
         ... )
         >>> for match in results:
         ...     print(f"Found in: {match.get_reference()}")
         ...     print(f"Similarity: {match.similarity:.1f}")
     """
-    from rapidfuzz import process, fuzz
+    from rapidfuzz import fuzz
     from .models import MultiAyahMatch
-    
+    from bisect import bisect_right
+
     if not query.strip() or not verses:
         return []
-    
+
     # Normalize query if needed
     search_query = normalize_arabic_text(query.strip()) if normalized else query.strip()
-    query_words = search_query.split()
-    query_len = len(query_words)
-    
-    if query_len == 0:
+
+    if not search_query:
         return []
-    
-    # Build a continuous text stream with verse boundaries tracked
+
+    # Check if we can use cached data
+    use_cache = (db is not None and
+                 hasattr(db, '_cache_enabled') and
+                 db._cache_enabled and
+                 db.corpus_words_list)
+
+    # Build list of words and verse_map (maps each word index to verse info)
     text_segments = []
-    verse_map = []  # Maps each segment index to (verse, word_start, word_end)
-    
-    for verse in verses:
-        verse_text = verse.text_normalized if normalized else verse.text
-        verse_words = verse_text.split()
-        
-        # Store each word segment with verse metadata
-        for word_idx, word in enumerate(verse_words):
-            text_segments.append(word)
-            verse_map.append((verse, word_idx, word_idx + 1))
-    
+    verse_map = []  # Each entry -> (verse, word_index_in_verse)
+
+    if use_cache:
+        text_segments = db.corpus_words_list_normalized if normalized else db.corpus_words_list
+
+        # Build verse_map from sorted ayah references
+        for surah_num, ayah_num in db.sorted_ayahs_ref_list:
+            verse = db.get_verse(surah_num, ayah_num)
+            verse_text = verse.text_normalized if normalized else verse.text
+            verse_words = verse_text.split()
+            for w_idx in range(len(verse_words)):
+                verse_map.append((verse, w_idx))
+    else:
+        for verse in verses:
+            verse_text = verse.text_normalized if normalized else verse.text
+            verse_words = verse_text.split()
+            for w_idx, w in enumerate(verse_words):
+                text_segments.append(w)
+                verse_map.append((verse, w_idx))
+
+    # If cache provided we filled text_segments from db above
+    if use_cache and not text_segments:
+        # If corpus_words_list exists but empty, fallback to per-verse build
+        for surah_num, ayah_num in db.sorted_ayahs_ref_list:
+            verse = db.get_verse(surah_num, ayah_num)
+            verse_text = verse.text_normalized if normalized else verse.text
+            verse_words = verse_text.split()
+            for w in verse_words:
+                text_segments.append(w)
+
     if not text_segments:
         return []
-    
-    # Create sliding windows with varying sizes
-    # We'll try windows from query_len to query_len * 1.5 to catch matches with some extra words
-    # Limit the number of window sizes to avoid excessive computation
-    windows = []
-    window_metadata = []  # Stores (start_idx, end_idx) in text_segments
-    
-    min_window = query_len
-    max_window = min(int(query_len * 1.5), len(text_segments))
-    
-    # Limit number of window sizes for performance
-    # For long queries, only try a few window sizes
-    if query_len > 20:
-        window_sizes = [query_len, max_window]
-    else:
-        window_sizes = range(min_window, max_window + 1)
-    
-    for window_size in window_sizes:
-        # Skip if window size is too large
-        if window_size > len(text_segments):
-            continue
-            
-        # Create sliding windows with a stride for very long queries
-        # For very long queries (>30 words), use stride of 2-3 to reduce number of windows
-        stride = 1 if query_len <= 30 else min(3, query_len // 10)
-        
-        for start_idx in range(0, len(text_segments) - window_size + 1, stride):
-            end_idx = start_idx + window_size
-            window_text = " ".join(text_segments[start_idx:end_idx])
-            windows.append(window_text)
-            window_metadata.append((start_idx, end_idx))
-    
-    if not windows:
-        return []
-    
-    # Vectorized fuzzy matching using rapidfuzz
-    # Use partial_ratio for substring matching
-    scores = process.cdist([search_query], windows, scorer=fuzz.partial_ratio)[0]
-    
-    # Create list of (index, score) tuples for items above threshold
-    scored_items = [(i, float(scores[i])) for i in range(len(scores)) if scores[i] >= threshold]
-    
-    if not scored_items:
-        return []
-    
-    # Sort by score descending
-    scored_items.sort(key=lambda x: x[1], reverse=True)
-    
-    # Build results
+
+    # Build full text string (words joined by single space) and char offsets per word
+    full_text = " ".join(text_segments)
+    word_char_offsets = []
+    pos = 0
+    for w in text_segments:
+        word_char_offsets.append(pos)
+        pos += len(w) + 1  # account for space
+
+    # Iteratively run alignment on the remaining text and slice after each match
     results = []
-    seen_ranges = set()  # To avoid duplicate overlapping matches
-    
-    for idx, score in scored_items:
-        start_idx, end_idx = window_metadata[idx]
-        matched_text = windows[idx]
-        
-        # Get verse boundaries
-        start_verse_info = verse_map[start_idx]
-        end_verse_info = verse_map[end_idx - 1]
-        
-        start_verse = start_verse_info[0]
-        start_word_in_verse = start_verse_info[1]
-        end_verse = end_verse_info[0]
-        end_word_in_verse = end_verse_info[2]
-        
-        # Create a range key to avoid duplicates
-        range_key = (start_verse.surah_number, start_verse.ayah_number, 
-                    start_word_in_verse, end_verse.surah_number, 
-                    end_verse.ayah_number, end_word_in_verse)
-        
+    seen_ranges = set()
+
+    start_char = 0
+    text_len = len(full_text)
+
+    while start_char < text_len:
+        substring = full_text[start_char:]
+
+        # Use partial_ratio_alignment to get best substring match and its alignment
+        try:
+            alignment = fuzz.partial_ratio_alignment(search_query, substring)
+        except Exception:
+            # If alignment isn't available for some reason, stop
+            break
+
+        if not alignment or alignment.score < threshold:
+            break
+
+        # alignment.dest_start and dest_end are positions in the substring (destination text)
+        match_start_char = start_char + alignment.dest_start
+        match_end_char = start_char + alignment.dest_end
+
+        # Map char positions back to word indices
+        start_word_idx = bisect_right(word_char_offsets, match_start_char) - 1
+        if start_word_idx < 0:
+            start_word_idx = 0
+        # end_char points to the char after the match; find the last word touched
+        end_word_idx = bisect_right(word_char_offsets, max(match_end_char - 1, 0)) - 1
+        if end_word_idx < 0:
+            end_word_idx = 0
+
+        # Bound indices
+        start_word_idx = max(0, min(start_word_idx, len(text_segments) - 1))
+        end_word_idx = max(0, min(end_word_idx, len(text_segments) - 1))
+
+        # Build range key based on verses and words to avoid duplicates
+        start_verse = verse_map[start_word_idx][0]
+        start_word_in_verse = verse_map[start_word_idx][1]
+        end_verse = verse_map[end_word_idx][0]
+        end_word_in_verse = verse_map[end_word_idx][1] + 1
+
+        range_key = (
+            start_verse.surah_number, start_verse.ayah_number, start_word_in_verse,
+            end_verse.surah_number, end_verse.ayah_number, end_word_in_verse
+        )
+
         if range_key in seen_ranges:
+            # Move past this match to avoid infinite loop
+            start_char = match_end_char
             continue
-        
+
         seen_ranges.add(range_key)
-        
+
         # Collect all verses in this range
         matched_verses = []
         current_verse = None
-        
-        for seg_idx in range(start_idx, end_idx):
-            verse_at_seg = verse_map[seg_idx][0]
+        for w_idx in range(start_word_idx, end_word_idx + 1):
+            verse_at_seg = verse_map[w_idx][0]
             if current_verse is None or verse_at_seg != current_verse:
                 matched_verses.append(verse_at_seg)
                 current_verse = verse_at_seg
-        
-        # Create match result
-        match = MultiAyahMatch(
+
+        matched_text = " ".join(text_segments[start_word_idx:end_word_idx + 1])
+
+        match_obj = MultiAyahMatch(
             verses=matched_verses,
-            similarity=score,
+            similarity=float(alignment.score),
             matched_text=matched_text,
             query_text=search_query,
             start_surah=start_verse.surah_number,
@@ -527,10 +555,17 @@ def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float 
             end_ayah=end_verse.ayah_number,
             end_word=end_word_in_verse
         )
-        results.append(match)
-        
-        # Limit results if specified
+
+        results.append(match_obj)
+
+        # Move forward to the end of this match
+        start_char = match_end_char
+
+        # Respect max_results if provided
         if max_results and len(results) >= max_results:
             break
-    
+
+    # Sort results by similarity descending
+    results.sort(key=lambda x: x.similarity, reverse=True)
+
     return results
