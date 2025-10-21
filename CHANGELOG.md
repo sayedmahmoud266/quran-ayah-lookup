@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [0.1.2] - 2025-10-22
+
+### Fixed
+
+- **📦 Package Distribution**: Fixed missing Quran text resource file in built packages
+  - Added `recursive-include src/quran_ayah_lookup/resources *.txt` to `MANIFEST.in`
+  - Added `[tool.setuptools.package-data]` section to `pyproject.toml`
+  - Ensures `quran-uthmani_all.txt` is included in both source and wheel distributions
+  - Package now installs correctly with all required resource files
+
 ## [0.1.1] - 2025-10-17
 
 ### Added
