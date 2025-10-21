@@ -6,6 +6,7 @@ include requirements.txt
 include requirements-dev.txt
 recursive-include docs *.md
 recursive-include tests *.py
+recursive-include src/quran_ayah_lookup/resources *.txt
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
 recursive-exclude * *.so
