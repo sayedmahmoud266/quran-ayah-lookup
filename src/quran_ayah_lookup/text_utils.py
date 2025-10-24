@@ -5,7 +5,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .models import QuranDatabase
+    from .models import QuranDatabase, MultiAyahMatch
 
 
 # Arabic diacritics and special signs to be removed
@@ -378,7 +378,143 @@ def fuzzy_search_text(query: str, verses: list, threshold: float = 0.7,
     return results
 
 
-def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float = 80.0,
+def refine_sliding_window_result(query: str, best_match: 'MultiAyahMatch', threshold: float,
+                                 normalized: bool, db: 'QuranDatabase') -> 'MultiAyahMatch':
+    """
+    Refine the boundaries of a sliding window search result for long queries.
+    
+    For queries longer than 500 characters, this function uses the first and last 30 characters
+    to recursively search within a contextual range around the initial boundaries, tightening
+    the match to more accurately reflect where the query content actually begins and ends.
+    
+    Args:
+        query (str): The original search query
+        best_match (MultiAyahMatch): The initial match result to refine
+        threshold (float): Minimum similarity score to use in refinement
+        normalized (bool): Whether to use normalized text
+        db (QuranDatabase): Database instance for accessing verses
+    
+    Returns:
+        MultiAyahMatch: Refined match with tighter boundaries, or original match if refinement fails
+    """
+    from .models import MultiAyahMatch
+    
+    # Only refine for long queries
+    if len(query) <= 500 or db is None:
+        return best_match
+    
+    try:
+        # Extract first 30 and last 30 characters of query
+        start_substring = query[:30]
+        end_substring = query[-30:]
+        
+        # Get initial boundary ayahs
+        initial_start_boundary_ayah = (best_match.start_surah, best_match.start_ayah)
+        initial_end_boundary_ayah = (best_match.end_surah, best_match.end_ayah)
+        
+        # Get all verses to find the position of boundaries
+        all_db_verses = db.get_all_verses()
+        
+        # Find index of start boundary ayah
+        start_idx = None
+        for idx, v in enumerate(all_db_verses):
+            if v.surah_number == initial_start_boundary_ayah[0] and v.ayah_number == initial_start_boundary_ayah[1]:
+                start_idx = idx
+                break
+        
+        # Find index of end boundary ayah
+        end_idx = None
+        for idx, v in enumerate(all_db_verses):
+            if v.surah_number == initial_end_boundary_ayah[0] and v.ayah_number == initial_end_boundary_ayah[1]:
+                end_idx = idx
+                break
+        
+        if start_idx is None or end_idx is None:
+            return best_match
+        
+        # Create range for start boundary (5 before and 5 after)
+        start_range_begin = max(0, start_idx - 5)
+        start_range_end = min(len(all_db_verses), start_idx + 6)  # +6 to include 5 after
+        start_boundary_verses = all_db_verses[start_range_begin:start_range_end]
+        
+        # Create range for end boundary (5 before and 5 after)
+        end_range_begin = max(0, end_idx - 5)
+        end_range_end = min(len(all_db_verses), end_idx + 6)  # +6 to include 5 after
+        end_boundary_verses = all_db_verses[end_range_begin:end_range_end]
+        
+        # Recursively search for refined start boundary
+        refined_start_results = sliding_window_multi_ayah_search(
+            start_substring,
+            verses=start_boundary_verses,
+            threshold=threshold,
+            normalized=normalized,
+            max_results=1,
+            db=db
+        )
+        
+        # Recursively search for refined end boundary
+        refined_end_results = sliding_window_multi_ayah_search(
+            end_substring,
+            verses=end_boundary_verses,
+            threshold=threshold,
+            normalized=normalized,
+            max_results=1,
+            db=db
+        )
+        
+        # Check if refinement improves boundaries
+        if not refined_start_results or not refined_end_results:
+            return best_match
+        
+        refined_start = refined_start_results[0]
+        refined_end = refined_end_results[0]
+        
+        # Convert to comparable format (surah, ayah)
+        new_start = (refined_start.start_surah, refined_start.start_ayah)
+        new_end = (refined_end.end_surah, refined_end.end_ayah)
+        
+        # Only apply refinement if new boundaries are within initial boundaries
+        # new_start should be >= initial_start and new_end should be <= initial_end
+        start_is_valid = (new_start[0] > initial_start_boundary_ayah[0] or 
+                         (new_start[0] == initial_start_boundary_ayah[0] and 
+                          new_start[1] >= initial_start_boundary_ayah[1]))
+        
+        end_is_valid = (new_end[0] < initial_end_boundary_ayah[0] or 
+                       (new_end[0] == initial_end_boundary_ayah[0] and 
+                        new_end[1] <= initial_end_boundary_ayah[1]))
+        
+        if not (start_is_valid and end_is_valid):
+            return best_match
+        
+        # Get refined verses between new boundaries
+        refined_verses = db.get_partial_verses(new_start, new_end)
+        
+        # Create refined match with new boundaries
+        refined_matched_text_parts = []
+        for v in refined_verses:
+            refined_matched_text_parts.append(v.text_normalized if normalized else v.text)
+        
+        refined_match = MultiAyahMatch(
+            verses=refined_verses,
+            similarity=best_match.similarity,
+            matched_text=" ".join(refined_matched_text_parts),
+            query_text=best_match.query_text,
+            start_surah=refined_start.start_surah,
+            start_ayah=refined_start.start_ayah,
+            start_word=refined_start.start_word,
+            end_surah=refined_end.end_surah,
+            end_ayah=refined_end.end_ayah,
+            end_word=refined_end.end_word
+        )
+        
+        return refined_match
+        
+    except Exception:
+        # If refinement fails, just return original match
+        return best_match
+
+
+def sliding_window_multi_ayah_search(query: str, verses: list = None, threshold: float = 80.0,
                                      normalized: bool = True, max_results: int = None,
                                      db: 'QuranDatabase' = None) -> list:
     """
@@ -392,22 +528,38 @@ def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float 
     
     Args:
         query (str): The text to search for
-        verses (List[QuranVerse]): List of verses to search in (should be ordered)
+        verses (List[QuranVerse], optional): List of verses to search in (should be ordered).
+            If not provided, the entire Quran database will be used.
         threshold (float): Minimum similarity score (0.0-100.0, default: 80.0)
         normalized (bool): Whether to search in normalized text (default: True)
         max_results (int, optional): Maximum number of results to return
-        db (QuranDatabase, optional): QuranDatabase instance for cache access
+        db (QuranDatabase, optional): QuranDatabase instance for cache access.
+            If verses is not provided and db is None, get_quran_database() will be called.
         
     Returns:
         List[MultiAyahMatch]: List of multi-ayah matches, sorted by similarity score
         
     Examples:
-        >>> # Search for text spanning multiple ayahs
+        >>> # Search the entire Quran (automatic database loading)
+        >>> results = sliding_window_multi_ayah_search(
+        ...     "الرحمن علم القران خلق الانسان علمه البيان",
+        ...     threshold=80
+        ... )
+        >>> 
+        >>> # Search with explicit database instance
+        >>> db = get_quran_database()
+        >>> results = sliding_window_multi_ayah_search(
+        ...     "الرحمن علم القران خلق الانسان علمه البيان",
+        ...     threshold=80,
+        ...     db=db
+        ... )
+        >>> 
+        >>> # Search specific verses
         >>> db = get_quran_database()
         >>> all_verses = db.get_all_verses()
         >>> results = sliding_window_multi_ayah_search(
         ...     "الرحمن علم القران خلق الانسان علمه البيان",
-        ...     all_verses,
+        ...     verses=all_verses,
         ...     threshold=80,
         ...     db=db
         ... )
@@ -419,7 +571,20 @@ def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float 
     from .models import MultiAyahMatch
     from bisect import bisect_right
 
-    if not query.strip() or not verses:
+    if not query.strip():
+        return []
+    
+    # Track if we're searching the entire database (no verses specified)
+    search_entire_db = verses is None
+    
+    # If verses not provided, load the database and get all verses
+    if search_entire_db:
+        if db is None:
+            from .loader import get_quran_database
+            db = get_quran_database()
+        verses = db.get_all_verses()
+    
+    if not verses:
         return []
 
     # Normalize query if needed
@@ -429,7 +594,9 @@ def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float 
         return []
 
     # Check if we can use cached data
-    use_cache = (db is not None and
+    # Only use cache when searching entire database to avoid overriding user-provided verses
+    use_cache = (search_entire_db and
+                 db is not None and
                  hasattr(db, '_cache_enabled') and
                  db._cache_enabled and
                  db.corpus_words_list)
@@ -568,4 +735,10 @@ def sliding_window_multi_ayah_search(query: str, verses: list, threshold: float 
     # Sort results by similarity descending
     results.sort(key=lambda x: x.similarity, reverse=True)
 
+    # Refine boundaries for long queries (> 500 characters)
+    if len(query) > 500 and results and db is not None:
+        best_match = results[0]
+        refined_match = refine_sliding_window_result(query, best_match, threshold, normalized, db)
+        results[0] = refined_match
+    
     return results

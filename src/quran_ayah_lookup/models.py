@@ -30,6 +30,16 @@ class QuranVerse:
     def __repr__(self) -> str:
         return (f"QuranVerse(surah={self.surah_number}, ayah={self.ayah_number}, "
                 f"text='{self.text[:30]}...', is_basmalah={self.is_basmalah})")
+    
+    def to_dict(self) -> dict:
+        """Convert QuranVerse to dictionary for JSON serialization."""
+        return {
+            'surah_number': self.surah_number,
+            'ayah_number': self.ayah_number,
+            'text': self.text,
+            'text_normalized': self.text_normalized,
+            'is_basmalah': self.is_basmalah
+        }
 
 
 @dataclass
@@ -61,6 +71,17 @@ class FuzzySearchResult:
     def __repr__(self) -> str:
         return (f"FuzzySearchResult(verse={self.verse.surah_number}:{self.verse.ayah_number}, "
                 f"similarity={self.similarity:.3f}, words={self.start_word}-{self.end_word})")
+    
+    def to_dict(self) -> dict:
+        """Convert FuzzySearchResult to dictionary for JSON serialization."""
+        return {
+            'verse': self.verse.to_dict(),
+            'start_word': self.start_word,
+            'end_word': self.end_word,
+            'similarity': self.similarity,
+            'matched_text': self.matched_text,
+            'query_text': self.query_text
+        }
 
 
 @dataclass
@@ -113,6 +134,22 @@ class MultiAyahMatch:
             return f"{self.start_surah}:{self.start_ayah}-{self.end_ayah}"
         else:
             return f"{self.start_surah}:{self.start_ayah} - {self.end_surah}:{self.end_ayah}"
+    
+    def to_dict(self) -> dict:
+        """Convert MultiAyahMatch to dictionary for JSON serialization."""
+        return {
+            'verses': [verse.to_dict() for verse in self.verses],
+            'similarity': self.similarity,
+            'matched_text': self.matched_text,
+            'query_text': self.query_text,
+            'start_surah': self.start_surah,
+            'start_ayah': self.start_ayah,
+            'start_word': self.start_word,
+            'end_surah': self.end_surah,
+            'end_ayah': self.end_ayah,
+            'end_word': self.end_word,
+            'reference': self.get_reference()
+        }
 
 
 @dataclass
@@ -176,6 +213,30 @@ class QuranChapter:
     
     def __repr__(self) -> str:
         return f"QuranChapter(number={self.number}, verse_count={len(self.ayahs)})"
+    
+    def to_dict(self, include_verses: bool = True) -> dict:
+        """
+        Convert QuranChapter to dictionary for JSON serialization.
+        
+        Args:
+            include_verses: Whether to include full verse data (default: True).
+                           Set to False for a lighter representation.
+        
+        Returns:
+            Dictionary representation of the chapter
+        """
+        result = {
+            'number': self.number,
+            'verse_count': len(self.ayahs),
+            'has_basmala': self.has_basmala()
+        }
+        
+        if include_verses:
+            result['verses'] = [verse.to_dict() for verse in self.get_all_verses()]
+        else:
+            result['ayah_numbers'] = sorted(self.ayahs.keys())
+        
+        return result
 
 
 @dataclass
@@ -286,6 +347,82 @@ class QuranDatabase:
                 all_verses.extend(self.surahs[surah_num].get_all_verses())
             return all_verses
     
+    def get_partial_verses(self, start_ayah: tuple, end_ayah: tuple) -> List[QuranVerse]:
+        """
+        Get a range of verses from start_ayah to end_ayah (inclusive).
+        
+        Args:
+            start_ayah: Tuple of (surah_number, ayah_number) for the starting verse
+            end_ayah: Tuple of (surah_number, ayah_number) for the ending verse
+        
+        Returns:
+            List of QuranVerse objects in the specified range, ordered by surah and ayah number
+        
+        Raises:
+            ValueError: If the tuples are invalid or the range is invalid
+        
+        Examples:
+            >>> db = get_quran_database()
+            >>> # Get verses from Al-Fatihah 1:1 to 1:3
+            >>> verses = db.get_partial_verses((1, 1), (1, 3))
+            >>> # Get verses spanning multiple surahs
+            >>> verses = db.get_partial_verses((1, 7), (2, 2))
+        """
+        # Validate input tuples
+        if not isinstance(start_ayah, tuple) or len(start_ayah) != 2:
+            raise ValueError("start_ayah must be a tuple of (surah_number, ayah_number)")
+        if not isinstance(end_ayah, tuple) or len(end_ayah) != 2:
+            raise ValueError("end_ayah must be a tuple of (surah_number, ayah_number)")
+        
+        start_surah, start_ayah_num = start_ayah
+        end_surah, end_ayah_num = end_ayah
+        
+        # Validate surah numbers
+        if start_surah not in self.surahs:
+            raise ValueError(f"Start surah {start_surah} not found")
+        if end_surah not in self.surahs:
+            raise ValueError(f"End surah {end_surah} not found")
+        
+        # Validate ayah numbers
+        if start_ayah_num not in self.surahs[start_surah]:
+            raise ValueError(f"Start ayah {start_ayah_num} not found in surah {start_surah}")
+        if end_ayah_num not in self.surahs[end_surah]:
+            raise ValueError(f"End ayah {end_ayah_num} not found in surah {end_surah}")
+        
+        # Validate range (start must come before or equal to end)
+        if (start_surah > end_surah) or (start_surah == end_surah and start_ayah_num > end_ayah_num):
+            raise ValueError(f"Invalid range: start ({start_surah}:{start_ayah_num}) comes after end ({end_surah}:{end_ayah_num})")
+        
+        # Build list of verses in the range
+        result_verses = []
+        
+        if start_surah == end_surah:
+            # Simple case: same surah
+            surah = self.surahs[start_surah]
+            for ayah_num in sorted(surah.ayahs.keys()):
+                if start_ayah_num <= ayah_num <= end_ayah_num:
+                    result_verses.append(surah.ayahs[ayah_num])
+        else:
+            # Complex case: spanning multiple surahs
+            # First surah: from start_ayah_num to end of surah
+            start_surah_obj = self.surahs[start_surah]
+            for ayah_num in sorted(start_surah_obj.ayahs.keys()):
+                if ayah_num >= start_ayah_num:
+                    result_verses.append(start_surah_obj.ayahs[ayah_num])
+            
+            # Middle surahs: all verses
+            for surah_num in range(start_surah + 1, end_surah):
+                if surah_num in self.surahs:
+                    result_verses.extend(self.surahs[surah_num].get_all_verses())
+            
+            # Last surah: from beginning to end_ayah_num
+            end_surah_obj = self.surahs[end_surah]
+            for ayah_num in sorted(end_surah_obj.ayahs.keys()):
+                if ayah_num <= end_ayah_num:
+                    result_verses.append(end_surah_obj.ayahs[ayah_num])
+        
+        return result_verses
+    
     def search_text(self, query: str, normalized: bool = True) -> List[QuranVerse]:
         """
         Search for verses containing the query text.
@@ -354,8 +491,38 @@ class QuranDatabase:
     
     def __repr__(self) -> str:
         return f"QuranDatabase(surahs={self.get_surah_count()}, verses={self.total_verses})"
-    
+
     @property
     def verses(self) -> List[QuranVerse]:
         """Backward compatibility property to get all verses as a list."""
         return self.get_all_verses()
+    
+    def to_dict(self, include_verses: bool = False, include_surahs: bool = True) -> dict:
+        """
+        Convert QuranDatabase to dictionary for JSON serialization.
+        
+        Args:
+            include_verses: Whether to include full verse data for all surahs (default: False).
+                           Warning: This creates a very large dictionary.
+            include_surahs: Whether to include surah data (default: True).
+                           Set to False for a minimal representation with just statistics.
+        
+        Returns:
+            Dictionary representation of the database
+        """
+        result = {
+            'total_surahs': self.total_surahs,
+            'total_verses': self.total_verses,
+            'total_verses_without_basmalah': self.total_verses_without_basmalah,
+            'cache_enabled': self._cache_enabled
+        }
+        
+        if include_surahs:
+            result['surahs'] = {
+                surah_num: surah.to_dict(include_verses=include_verses)
+                for surah_num, surah in sorted(self.surahs.items())
+            }
+        else:
+            result['surah_numbers'] = self.sorted_surahs_ref_list
+        
+        return result

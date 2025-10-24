@@ -178,8 +178,9 @@ def search_sliding_window(query: str, threshold: float = 80.0, normalized: bool 
     from .text_utils import sliding_window_multi_ayah_search
     
     db = get_quran_database()
-    all_verses = db.get_all_verses()
-    return sliding_window_multi_ayah_search(query, all_verses, threshold, normalized, max_results, db=db)
+    # Don't pass verses parameter to allow cache usage
+    return sliding_window_multi_ayah_search(query, threshold=threshold, normalized=normalized, 
+                                           max_results=max_results, db=db)
 
 
 def smart_search(query: str, threshold: float = 0.7, sliding_threshold: float = 80.0,

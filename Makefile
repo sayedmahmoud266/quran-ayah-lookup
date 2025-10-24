@@ -125,4 +125,8 @@ setup-dev: init install-deps-dev ## Complete development setup
 	@echo "Development environment setup completed!"
 	@echo "To activate the virtual environment: source $(VENV_NAME)/bin/activate"
 
+serve-cov: ## Serve coverage report in browser
+	@echo "Serving coverage report at http://localhost:8000"
+	cd htmlcov && python3 -m http.server 8000
+
 .PHONY: help init install-deps install-deps-dev test test-coverage format lint typecheck check build clean clean-all install-dev publish-test publish setup-dev

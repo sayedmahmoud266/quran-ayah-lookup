@@ -31,6 +31,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [0.1.3] - 2025-10-24
+
+### Added
+
+- **📦 JSON Serialization Support**: Added `to_dict()` methods to all data models
+  - `QuranVerse.to_dict()`: Convert verse to dictionary
+  - `FuzzySearchResult.to_dict()`: Convert search result with nested verse data
+  - `MultiAyahMatch.to_dict()`: Convert multi-ayah match with verses list
+  - `QuranChapter.to_dict(include_verses)`: Convert chapter with optional verse data
+  - `QuranDatabase.to_dict(include_verses, include_surahs)`: Convert database with flexible output control
+  - All nested objects are recursively converted for proper JSON serialization
+  - Enables easy API responses and data export functionality
+
+- **🎯 Partial Verse Range Retrieval**: New `get_partial_verses()` method in `QuranDatabase`
+  - Get a range of verses from start ayah to end ayah (inclusive)
+  - Input: Two tuples `(surah_number, ayah_number)` for start and end
+  - Handles single-surah and multi-surah ranges
+  - Comprehensive validation of surah numbers, ayah numbers, and range validity
+  - Returns ordered list of `QuranVerse` objects
+  - Example: `db.get_partial_verses((1, 1), (1, 7))` gets Al-Fatihah verses 1-7
+
+- **🔍 Boundary Refinement for Long Queries**: Smart boundary detection for queries > 500 characters
+  - New `refine_sliding_window_result()` function for precise boundary refinement
+  - Uses first and last 30 characters of query for recursive boundary detection
+  - Searches within ±5 ayah context window around initial boundaries
+  - Only applies refinement if new boundaries are within initial boundaries
+  - Prevents over-matching in long text searches
+  - Improves accuracy for multi-ayah queries
+
+- **⚡ Enhanced Cache Optimization**: Improved sliding window search cache usage
+  - Made `verses` parameter optional in `sliding_window_multi_ayah_search()`
+  - Added `search_entire_db` flag to track when searching full Quran
+  - Cache only used when searching entire database (prevents overriding user-provided verse lists)
+  - Automatic database loading when no verses provided
+  - Updated `search_sliding_window()` wrapper to leverage cache by default
+
+### Changed
+
+- **♻️ Code Refactoring**: Improved readability and maintainability
+  - Extracted boundary refinement logic into separate `refine_sliding_window_result()` function
+  - Reduced `sliding_window_multi_ayah_search()` complexity by ~100 lines
+  - Better separation of concerns for easier testing and maintenance
+
+- **📚 Enhanced Documentation**: Updated docstrings with new examples
+  - Added examples for automatic database loading
+  - Documented cache behavior with `search_entire_db` flag
+  - Clarified usage patterns for partial verse retrieval
+
+### Fixed
+
+- **🔧 Type Checking**: Added `MultiAyahMatch` to TYPE_CHECKING imports in `text_utils.py`
+  - Resolves Pylance type checking warnings
+  - Proper type hints for `refine_sliding_window_result()` function
+
 ## [0.1.2] - 2025-10-22
 
 ### Fixed
