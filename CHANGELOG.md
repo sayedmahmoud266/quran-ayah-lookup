@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [0.1.4] - 2025-10-27
+
+### Changed
+
+- **🔍 Boundary Refinement for Long Queries**: Smart boundary detection for queries > 100 characters instead of 500 characters
+
 ## [0.1.3] - 2025-10-24
 
 ### Added

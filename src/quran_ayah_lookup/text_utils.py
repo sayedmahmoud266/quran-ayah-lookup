@@ -735,8 +735,8 @@ def sliding_window_multi_ayah_search(query: str, verses: list = None, threshold:
     # Sort results by similarity descending
     results.sort(key=lambda x: x.similarity, reverse=True)
 
-    # Refine boundaries for long queries (> 500 characters)
-    if len(query) > 500 and results and db is not None:
+    # Refine boundaries for long queries (> 100 characters)
+    if len(query) > 100 and results and db is not None:
         best_match = results[0]
         refined_match = refine_sliding_window_result(query, best_match, threshold, normalized, db)
         results[0] = refined_match
