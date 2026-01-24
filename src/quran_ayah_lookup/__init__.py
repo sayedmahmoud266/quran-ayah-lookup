@@ -13,7 +13,7 @@ Email: foss-support@sayedmahmoud266.website
 # Import core functionality
 from .models import QuranVerse, QuranChapter, QuranDatabase, FuzzySearchResult, MultiAyahMatch, default_settings
 from .text_utils import normalize_arabic_text
-from .loader import initialize_quran_database, get_quran_database, QuranStyle
+from .loader import initialize_quran_database, get_quran_database, QuranStyle, switch_quran_style, update_loader_settings
 from importlib.metadata import version
 import atexit
 
@@ -53,6 +53,8 @@ __all__ = [
     'get_surah_verses',
     'QuranStyle',
     'default_settings',
+    'switch_quran_style',
+    'update_loader_settings',
 ]
 
 
