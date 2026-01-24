@@ -102,31 +102,120 @@ if 35 in surah:
 
 # Get all verses from a surah
 all_verses = surah.get_all_verses()
-
-## Selecting Quran Text Versions
-
-By default, the package uses the `quran-uthmani_all.txt` corpus (from Tanzil.net) for all lookups. If you want to try a different Quran version, rename`.env.example` to `.env` and choose from the options below:
-
-```
-QURAN_DATA_FILE=simple.txt
 ```
 
-**Available options:**
+## Quran Text Styles
 
-- `quran-uthmani_all.txt` – Full Uthmani script with all diacritics (default, most accurate)
-- `uthmani.txt` 
-- `simple.txt` 
-- `simple-plain.txt` 
-- `simple-clean.txt` 
-- `simple-minimal.txt` 
+The package supports **multiple Quran text styles** from [Tanzil.net](https://tanzil.net/), allowing you to choose the text representation that best fits your use case.
 
-All files are in `src/quran_ayah_lookup/resources/`.
+### Available Styles
 
-**Differences:**
-    You can download and compare these versions at [Tanzil.net](https://tanzil.net/download/).
+- **`UTHMANI_ALL`** (default) - Full Uthmani script with all tashkeel and harakat (most complete)
+- **`UTHMANI`** - Uthmani script with standard diacritics
+- **`SIMPLE`** - Simplified text with basic diacritics
+- **`SIMPLE_PLAIN`** - Plain simplified text
+- **`SIMPLE_CLEAN`** - Cleaned simplified text
+- **`SIMPLE_MINIMAL`** - Minimal simplified text (least diacritics)
 
-This makes it easy to experiment with different text representations for your use case.
+All corpus files are available in `src/quran_ayah_lookup/resources/`. You can download and compare these versions at [Tanzil.net](https://tanzil.net/download/).
+
+### Switching Between Styles
+
+#### 1. Using Environment Variable
+
+Set the `QAL_STYLE` environment variable (works from shell or `.env` file):
+
+```bash
+# From command line
+export QAL_STYLE=SIMPLE
+qal verse 1 1
+
+# Or directly with the command
+QAL_STYLE=SIMPLE qal verse 1 1
 ```
+
+Create a `.env` file in your project directory:
+
+```env
+QAL_STYLE=SIMPLE
+```
+
+#### 2. Using CLI Option
+
+Pass the `--style` or `-s` option to any CLI command:
+
+```bash
+# Get verse with specific style
+qal verse 1 1 --style=SIMPLE
+qal verse 1 1 -s SIMPLE
+
+# Search with different style
+qal search "الله" --style=UTHMANI
+
+# Works with all commands
+qal fuzzy "بسم الله" -s SIMPLE_MINIMAL
+qal smart-search "الرحمن الرحيم" --style=SIMPLE_CLEAN
+```
+
+#### 3. From Python Library
+
+**Option A: Initialize with specific style**
+
+```python
+import quran_ayah_lookup as qal
+
+# Get database with specific style
+db = qal.get_quran_database(qal.QuranStyle.SIMPLE)
+
+# Now use the database
+verse = db.get_verse(1, 1)
+print(verse.text)
+```
+
+**Option B: Switch style dynamically**
+
+```python
+import quran_ayah_lookup as qal
+
+# Database loads with default style (UTHMANI_ALL)
+verse = qal.get_verse(1, 1)
+
+# Switch to a different style
+qal.switch_quran_style(qal.QuranStyle.SIMPLE)
+
+# Now all queries use the new style
+verse = qal.get_verse(1, 1)
+```
+
+**Option C: Disable auto-initialization and control loading**
+
+```python
+import quran_ayah_lookup.models as models
+import quran_ayah_lookup as qal
+
+# Disable automatic initialization on import
+models.default_settings.autoload_on_import = False
+
+# Initialize with your preferred style
+qal.initialize_quran_database(qal.QuranStyle.SIMPLE)
+
+# Now use the package
+verse = qal.get_verse(1, 1)
+```
+
+**Option D: Update default settings directly**
+
+```python
+import quran_ayah_lookup as qal
+
+# Change the default style before initialization
+qal.default_settings.style = qal.QuranStyle.SIMPLE_CLEAN
+
+# Reinitialize the database
+qal.initialize_quran_database()
+
+# Use the package
+verse = qal.get_verse(1, 1)
 
 ### Command Line Interface (CLI)
 
