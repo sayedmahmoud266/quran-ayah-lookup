@@ -11,21 +11,29 @@ Email: foss-support@sayedmahmoud266.website
 
 
 # Import core functionality
-from .models import QuranVerse, QuranChapter, QuranDatabase, FuzzySearchResult, MultiAyahMatch
+from .models import QuranVerse, QuranChapter, QuranDatabase, FuzzySearchResult, MultiAyahMatch, default_settings
 from .text_utils import normalize_arabic_text
-from .loader import initialize_quran_database, get_quran_database
+from .loader import initialize_quran_database, get_quran_database, QuranStyle
 from importlib.metadata import version
+import atexit
 
 
 __version__ = version("quran-ayah-lookup")
 __author__ = "Sayed Mahmoud"
 __email__ = "foss-support@sayedmahmoud266.website"
-__enable_cache__ = True
+
+
 
 print(f"Quran Ayah Lookup version {__version__} initialized.")
 
-# Initialize the Quran database when package is imported
-_quran_db = initialize_quran_database()
+
+def setup():
+    """Setup function to initialize the Quran database on import."""
+    if default_settings.autoload_on_import:
+        print("Loading Quran database on import...")
+        initialize_quran_database()
+
+atexit.register(setup)
 
 # Public API exports
 __all__ = [
@@ -43,6 +51,8 @@ __all__ = [
     'search_sliding_window',
     'smart_search',
     'get_surah_verses',
+    'QuranStyle',
+    'default_settings',
 ]
 
 

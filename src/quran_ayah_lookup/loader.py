@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
 
-from .models import QuranVerse, QuranDatabase
+from .models import QuranVerse, QuranDatabase, QuranStyle, LoaderSettings, default_settings
 from .text_utils import (
     normalize_arabic_text, 
     extract_basmala, 
@@ -15,34 +15,70 @@ from .text_utils import (
     get_normalized_basmala
 )
 
-load_dotenv()  # Load environment variables from .env file if present
-
 
 class QuranLoader:
     """Handles loading and processing of Quran text data."""
     
     # Surahs that don't have Basmala at the beginning
     SURAHS_WITHOUT_BASMALA = {1, 9}  # Al-Fatihah and At-Tawbah
+
+    style: QuranStyle
     
-    def __init__(self):
-        self.data_file_path = self._get_data_file_path()
-    
-    def _get_data_file_path(self) -> Path:
+    def __init__(self, _style: QuranStyle = default_settings.style):
+        """Initialize the loader with specified style and load environment settings."""
+        self._load_env()
+        self.data_file_path = self._get_data_file_path(_style)
+
+    def _load_env(self):
+        """Load environment variables for configuration."""
+        load_dotenv()
+
+        global default_settings
+
+        # check settings from env variables
+        style_str = os.getenv("QAL_STYLE", default_settings.style.name).upper()
+        cache_enabled_str = os.getenv("QAL_CACHE_ENABLED", str(default_settings.cache_enabled)).lower()
+        autoload_on_import_str = os.getenv("QAL_AUTOLOAD_ON_IMPORT", str(default_settings.autoload_on_import)).lower()
+        try:
+            self.style = QuranStyle[style_str]
+        except KeyError:
+            print(f"Invalid QAL_STYLE specified. Falling back to default: {default_settings.style.name}")
+            self.style = default_settings.style
+            default_settings.style = self.style
+
+        try:
+            default_settings.cache_enabled = cache_enabled_str in ("1", "true", "yes")
+        except Exception:
+            default_settings.cache_enabled = True
+
+        try:
+            default_settings.autoload_on_import = autoload_on_import_str in ("1", "true", "yes")
+        except Exception:
+            default_settings.autoload_on_import = True
+
+        
+    def _get_data_file_path(self, _style: QuranStyle) -> Path:
         """Get the path to the quran-uthmani_all.txt file."""
         current_dir = Path(__file__).parent
         data_file_dir = current_dir / "resources"
 
-        data_file = os.getenv("QURAN_DATA_FILE", "quran-uthmani_all.txt")
+        try:
+            data_file = QuranStyle(os.getenv("QURAN_DATA_FILE", _style.value))
+        except ValueError:
+            print(f"Invalid QURAN_DATA_FILE specified. Falling back to default: {_style.value}")
+            data_file = _style
+            self.style = _style
+
         print(f"Using Quran data file: {data_file}")
-        data_file = data_file_dir / data_file
+        data_file_path = data_file_dir / str(data_file.value)
         
-        if not data_file.exists():
+        if not data_file_path.exists():
             raise FileNotFoundError(
-                f"Quran data file not found at {data_file}. "
+                f"Quran data file not found at {data_file_path}. "
                 f"Please ensure {data_file.name} exists in the resources directory."
             )
         
-        return data_file
+        return data_file_path
     
     def load_quran_data(self) -> QuranDatabase:
         """
@@ -52,6 +88,7 @@ class QuranLoader:
             QuranDatabase: Complete database with all verses processed
         """
         database = QuranDatabase()
+        database.corpus_style = self.style
         
         with open(self.data_file_path, 'r', encoding='utf-8') as file:
             for line_number, line in enumerate(file, 1):
@@ -172,7 +209,8 @@ class QuranLoader:
 _quran_database: QuranDatabase = None
 
 
-def initialize_quran_database() -> QuranDatabase:
+
+def initialize_quran_database(_style: QuranStyle = default_settings.style) -> QuranDatabase:
     """
     Initialize and load the Quran database.
     This function is called once when the package is imported.
@@ -181,29 +219,30 @@ def initialize_quran_database() -> QuranDatabase:
         QuranDatabase: The loaded Quran database
     """
     global _quran_database
+    global default_settings
     
     if _quran_database is None:
-        # Import here to avoid circular imports
-        from . import __enable_cache__
+
         
-        loader = QuranLoader()
+        loader = QuranLoader(_style)
         _quran_database = loader.load_quran_data()
         
         # Finalize cache structures if caching is enabled
-        if __enable_cache__:
+        if default_settings.cache_enabled:
             _quran_database.finalize_cache()
         
         print(f"✓ Quran database loaded successfully:")
+        print(f"  - Style: {_style.name}, file: {_style.value}")
         print(f"  - Total verses: {_quran_database.total_verses}")
         print(f"  - Total surahs: {_quran_database.total_surahs}")
         print(f"  - Source: Tanzil.net")
-        if __enable_cache__:
+        if default_settings.cache_enabled:
             print(f"  - Performance cache: enabled")
     
     return _quran_database
 
 
-def get_quran_database() -> QuranDatabase:
+def get_quran_database(_style: QuranStyle = default_settings.style) -> QuranDatabase:
     """
     Get the initialized Quran database.
     
@@ -213,7 +252,29 @@ def get_quran_database() -> QuranDatabase:
     Raises:
         RuntimeError: If database is not initialized
     """
-    if _quran_database is None:
-        return initialize_quran_database()
+    if _quran_database is None or _quran_database.corpus_style != _style:
+        return initialize_quran_database(_style)
     
     return _quran_database
+
+def switch_quran_style(new_style: QuranStyle = default_settings.style) -> QuranDatabase:
+    """
+    Switch the Quran database to a different style.
+    
+    Args:
+        new_style (QuranStyle): The new style to switch to.
+        
+    Returns:
+        QuranDatabase: The re-initialized Quran database with the new style.
+    """
+    return get_quran_database(new_style)
+
+def update_loader_settings(new_settings: LoaderSettings):
+    """
+    Update the loader settings used during Quran database initialization.
+    
+    Args:
+        new_settings (LoaderSettings): New settings to apply.
+    """
+    global default_settings
+    default_settings = new_settings

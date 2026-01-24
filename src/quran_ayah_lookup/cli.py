@@ -7,6 +7,10 @@ import sys
 import click
 from typing import Optional
 
+# set package setting to not automtically load on import
+from .models import default_settings
+default_settings.autoload_on_import = False
+
 # Import the package functionality
 from . import (
     get_verse,
@@ -17,13 +21,44 @@ from . import (
     smart_search,
     get_surah_verses,
     get_quran_database,
+    initialize_quran_database,
+    QuranStyle,
 )
 
+def style_option(f):
+    """Click option for selecting Quran style/version."""
+    @click.option("--style", "-s", type=click.Choice([style.name for style in QuranStyle]), default=None, help="Quran text style/version to use")
+    @click.pass_context
+    def wrapper(ctx, style, *args, **kwargs):
+        ctx.ensure_object(dict)
+        
+        # 1. Check if style was provided at THIS level
+        if style is not None:
+            ctx.obj['SELECTED_STYLE'] = style
+        
+        # 2. Retrieve the most recent style from context
+        current_style_name = ctx.obj.get('SELECTED_STYLE')
 
-@click.group(invoke_without_command=True)
-@click.pass_context
+        if current_style_name:
+            selected_style = QuranStyle[current_style_name]
+            default_settings.style = selected_style
+            
+            # 3. Only initialize if it's not already set to this
+            # This prevents the "Group" and "Command" from double-initializing
+            print(f"Initializing Quran database with style: {selected_style.name}")
+            initialize_quran_database(selected_style)
+        
+        # 4. IMPORTANT: If 'f' is a command that expects 'style', 
+        # we must put it back into kwargs or it disappears.
+        # However, since we use @click.pass_context, we can just pass ctx.
+        return ctx.invoke(f, *args, **kwargs)
+    return wrapper
+
+
+@click.group(invoke_without_command=True, help="Quran Ayah Lookup CLI - Look up Quranic ayahs, search text, and perform fuzzy searches using the Quran corpus from Tanzil.net.")
 @click.version_option()
-def cli(ctx):
+@style_option
+def cli():
     """
     Quran Ayah Lookup CLI
     
@@ -32,24 +67,27 @@ def cli(ctx):
     
     If no command is provided, starts an interactive REPL mode.
     """
+    ctx = click.get_current_context()
     if ctx.invoked_subcommand is None:
         # No subcommand provided, start REPL mode
         repl_mode()
 
 
-@cli.command(name="verse")
+@cli.command(name="verse", help="Get a specific verse by surah and ayah number")
 @click.argument("surah", type=int)
 @click.argument("ayah", type=int)
 @click.option("--normalized", "-n", is_flag=True, help="Show normalized text only")
 @click.option("--original", "-o", is_flag=True, help="Show original text only")
-def get_verse_cmd(surah: int, ayah: int, normalized: bool, original: bool):
+@style_option
+@click.pass_context
+def get_verse_cmd(ctx, surah: int, ayah: int, normalized: bool, original: bool):
     """
     Get a specific verse by surah and ayah number.
     
     Examples:
         qal verse 3 35          # Get Al-Imran, verse 35
         qal verse 1 1 --normalized  # Show normalized text only
-    """
+    """    
     try:
         verse = get_verse(surah, ayah)
         display_verse(verse, normalized=normalized, original=original)
@@ -61,11 +99,13 @@ def get_verse_cmd(surah: int, ayah: int, normalized: bool, original: bool):
         sys.exit(1)
 
 
-@cli.command(name="surah")
+@cli.command(name="surah", help="Get information about a specific surah/chapter")
 @click.argument("surah_number", type=int)
 @click.option("--count", "-c", is_flag=True, help="Show verse count only")
 @click.option("--list", "-l", is_flag=True, help="List all verses")
-def get_surah_cmd(surah_number: int, count: bool, list: bool):
+@style_option
+@click.pass_context
+def get_surah_cmd(ctx, surah_number: int, count: bool, list: bool):
     """
     Get information about a specific surah/chapter.
     
@@ -97,11 +137,13 @@ def get_surah_cmd(surah_number: int, count: bool, list: bool):
         sys.exit(1)
 
 
-@cli.command(name="search")
+@cli.command(name="search", help="Search for verses containing a specific text query")
 @click.argument("query")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
-def search_text_cmd(query: str, normalized: bool, limit: Optional[int]):
+@style_option
+@click.pass_context
+def search_text_cmd(ctx,query: str, normalized: bool, limit: Optional[int]):
     """
     Search for verses containing the query text (exact substring matching).
     
@@ -135,12 +177,14 @@ def search_text_cmd(query: str, normalized: bool, limit: Optional[int]):
         sys.exit(1)
 
 
-@cli.command(name="fuzzy")
+@cli.command(name="fuzzy", help="Perform fuzzy search with partial text matching")
 @click.argument("query")
 @click.option("--threshold", "-t", type=float, default=0.7, help="Minimum similarity score (0.0-1.0)")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
-def fuzzy_search_cmd(query: str, threshold: float, normalized: bool, limit: Optional[int]):
+@style_option
+@click.pass_context
+def fuzzy_search_cmd(ctx,query: str, threshold: float, normalized: bool, limit: Optional[int]):
     """
     Perform fuzzy search with partial text matching.
     
@@ -174,9 +218,11 @@ def fuzzy_search_cmd(query: str, threshold: float, normalized: bool, limit: Opti
         sys.exit(1)
 
 
-@cli.command(name="list-verses")
+@cli.command(name="list-verses", help="List all verses in a specific surah")
 @click.argument("surah_number", type=int)
-def get_surah_verses_cmd(surah_number: int):
+@style_option
+@click.pass_context
+def get_surah_verses_cmd(ctx, surah_number: int):
     """
     Get all verses for a specific surah.
     
@@ -201,12 +247,14 @@ def get_surah_verses_cmd(surah_number: int):
         sys.exit(1)
 
 
-@cli.command(name="sliding-window")
+@cli.command(name="sliding-window", help="Search for text that may span multiple ayahs using a sliding window approach")
 @click.argument("query")
 @click.option("--threshold", "-t", type=float, default=80.0, help="Minimum similarity score (0.0-100.0)")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
-def sliding_window_search_cmd(query: str, threshold: float, normalized: bool, limit: Optional[int]):
+@style_option
+@click.pass_context
+def sliding_window_search_cmd(ctx, query: str, threshold: float, normalized: bool, limit: Optional[int]):
     """
     Search for text that may span multiple ayahs using a sliding window approach.
     
@@ -247,13 +295,15 @@ def sliding_window_search_cmd(query: str, threshold: float, normalized: bool, li
         sys.exit(1)
 
 
-@cli.command(name="smart-search")
+@cli.command(name="smart-search", help="Intelligent search that tries exact, fuzzy, and sliding window methods")
 @click.argument("query")
 @click.option("--fuzzy-threshold", "-f", type=float, default=0.7, help="Fuzzy search threshold (0.0-1.0)")
 @click.option("--sliding-threshold", "-s", type=float, default=80.0, help="Sliding window threshold (0.0-100.0)")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
-def smart_search_cmd(query: str, fuzzy_threshold: float, sliding_threshold: float, 
+@style_option
+@click.pass_context
+def smart_search_cmd(ctx, query: str, fuzzy_threshold: float, sliding_threshold: float, 
                      normalized: bool, limit: Optional[int]):
     """
     Intelligent search that automatically tries multiple search methods.
@@ -328,8 +378,10 @@ def smart_search_cmd(query: str, fuzzy_threshold: float, sliding_threshold: floa
         sys.exit(1)
 
 
-@cli.command(name="stats")
-def show_stats():
+@cli.command(name="stats", help="Show database statistics")
+@style_option
+@click.pass_context
+def show_stats(ctx):
     """
     Show database statistics.
     
@@ -340,6 +392,7 @@ def show_stats():
         db = get_quran_database()
         click.echo("Quran Database Statistics")
         click.echo("=" * 60)
+        click.echo(f"Quran Style Version: {db.corpus_style.name}, file: {db.corpus_style.value}")
         click.echo(f"Total surahs: {len(db.surahs)}")
         click.echo(f"Total verses: {db.total_verses}")
         click.echo(f"Source: Tanzil.net")
@@ -350,11 +403,13 @@ def show_stats():
         sys.exit(1)
 
 
-@cli.command(name="serve")
+@cli.command(name="serve", help="Start the REST API server")
 @click.option("--host", "-h", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
 @click.option("--port", "-p", type=int, default=8000, help="Port to bind to (default: 8000)")
 @click.option("--reload", "-r", is_flag=True, help="Enable auto-reload for development")
-def serve_api(host: str, port: int, reload: bool):
+@style_option
+@click.pass_context
+def serve_api(ctx, host: str, port: int, reload: bool):
     """
     Start the REST API server.
     

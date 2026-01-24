@@ -3,7 +3,29 @@ Data models for Quran verses and related structures.
 """
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
+from enum import Enum
 
+class QuranStyle(Enum):
+    """Enumeration of available Quran text styles/files."""
+    UTHMANI_ALL = "quran-uthmani_all.txt"
+    SIMPLE_CLEAN = "simple-clean.txt"
+    SIMPLE_MINIMAL = "simple-minimal.txt"
+    SIMPLE_PLAIN = "simple-plain.txt"
+    SIMPLE = "simple.txt"
+    UTHMANI = "uthmani.txt"
+
+
+@dataclass
+class LoaderSettings:
+    """Settings for loading Quran text data."""
+    style: QuranStyle = QuranStyle.UTHMANI_ALL
+    cache_enabled: bool = True
+    autoload_on_import: bool = True
+
+
+## initialize singleton default settings
+if 'default_settings' not in globals():
+    default_settings = LoaderSettings()
 
 @dataclass
 class QuranVerse:
@@ -267,6 +289,7 @@ class QuranDatabase:
     corpus_words_list: List[str] = field(default_factory=list)
     corpus_words_list_normalized: List[str] = field(default_factory=list)
     _cache_enabled: bool = False
+    corpus_style: QuranStyle = default_settings.style
     
     def add_verse(self, verse: QuranVerse) -> None:
         """Add a verse to the database, creating chapter if needed."""
