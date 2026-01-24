@@ -150,7 +150,8 @@ def extract_basmala() -> str:
         
         # Get path to the data file
         current_dir = Path(__file__).parent
-        data_file = current_dir / "resources" / "quran-uthmani_all.txt"
+        data_file_name = os.getenv("QURAN_DATA_FILE", "quran-uthmani_all.txt")
+        data_file = current_dir / "resources" / data_file_name
         
         try:
             with open(data_file, 'r', encoding='utf-8') as f:

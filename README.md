@@ -102,6 +102,30 @@ if 35 in surah:
 
 # Get all verses from a surah
 all_verses = surah.get_all_verses()
+
+## Selecting Quran Text Versions
+
+By default, the package uses the `quran-uthmani_all.txt` corpus (from Tanzil.net) for all lookups. If you want to try a different Quran version, rename`.env.example` to `.env` and choose from the options below:
+
+```
+QURAN_DATA_FILE=simple.txt
+```
+
+**Available options:**
+
+- `quran-uthmani_all.txt` – Full Uthmani script with all diacritics (default, most accurate)
+- `uthmani.txt` 
+- `simple.txt` 
+- `simple-plain.txt` 
+- `simple-clean.txt` 
+- `simple-minimal.txt` 
+
+All files are in `src/quran_ayah_lookup/resources/`.
+
+**Differences:**
+    You can download and compare these versions at [Tanzil.net](https://tanzil.net/download/).
+
+This makes it easy to experiment with different text representations for your use case.
 ```
 
 ### Command Line Interface (CLI)

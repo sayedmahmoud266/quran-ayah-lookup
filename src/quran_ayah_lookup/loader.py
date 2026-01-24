@@ -4,6 +4,7 @@ Quran data loader and initialization functionality.
 import os
 from pathlib import Path
 from typing import List
+from dotenv import load_dotenv
 
 from .models import QuranVerse, QuranDatabase
 from .text_utils import (
@@ -13,6 +14,8 @@ from .text_utils import (
     remove_basmala_from_text,
     get_normalized_basmala
 )
+
+load_dotenv()  # Load environment variables from .env file if present
 
 
 class QuranLoader:
@@ -27,12 +30,16 @@ class QuranLoader:
     def _get_data_file_path(self) -> Path:
         """Get the path to the quran-uthmani_all.txt file."""
         current_dir = Path(__file__).parent
-        data_file = current_dir / "resources" / "quran-uthmani_all.txt"
+        data_file_dir = current_dir / "resources"
+
+        data_file = os.getenv("QURAN_DATA_FILE", "quran-uthmani_all.txt")
+        print(f"Using Quran data file: {data_file}")
+        data_file = data_file_dir / data_file
         
         if not data_file.exists():
             raise FileNotFoundError(
                 f"Quran data file not found at {data_file}. "
-                "Please ensure quran-uthmani_all.txt is in the resources directory."
+                f"Please ensure {data_file.name} exists in the resources directory."
             )
         
         return data_file

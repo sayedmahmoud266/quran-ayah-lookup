@@ -2,6 +2,7 @@
 rapidfuzz>=3.0.0
 numpy>=2.0.0
 click>=8.0.0
+python-dotenv>=1.0.0
 
 # API dependencies (optional - only needed for API server)
 # Install with: pip install "quran-ayah-lookup[api]"
