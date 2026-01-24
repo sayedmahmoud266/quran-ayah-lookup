@@ -31,6 +31,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [0.1.5] - 2026-01-24
+
+### Added
+
+- **📚 Multiple Quran Text Styles**: Added support for 6 different Quran text styles from Tanzil.net
+  - `UTHMANI_ALL` (default): Full Uthmani script with all tashkeel and harakat (most complete)
+  - `UTHMANI`: Uthmani script with standard diacritics
+  - `SIMPLE`: Simplified text with basic diacritics
+  - `SIMPLE_PLAIN`: Plain simplified text
+  - `SIMPLE_CLEAN`: Cleaned simplified text
+  - `SIMPLE_MINIMAL`: Minimal simplified text (least diacritics)
+  - All corpus files available in `src/quran_ayah_lookup/resources/`
+
+- **🔄 Style Switching Methods**: Three flexible ways to switch between Quran text styles
+  - **Environment Variable**: `QAL_STYLE` environment variable support (works from shell or `.env` file)
+  - **CLI Option**: `--style` / `-s` flag available for all CLI commands
+  - **Python API**: Multiple methods for programmatic style control:
+    - `get_quran_database(QuranStyle.SIMPLE)`: Initialize with specific style
+    - `switch_quran_style(QuranStyle.SIMPLE)`: Dynamically switch styles
+    - `initialize_quran_database(QuranStyle.SIMPLE)`: Manual initialization with style
+    - `default_settings.style`: Direct settings modification
+
+- **⚙️ Environment File Support**: `.env` file support for persistent style configuration
+  - Set `QAL_STYLE=SIMPLE` in `.env` file for project-wide style defaults
+  - Automatic loading of environment variables on package initialization
+
+- **🎨 QuranStyle Enum**: New enumeration for type-safe style selection
+  - All available styles exposed as `QuranStyle` enum members
+  - Prevents invalid style names and provides IDE autocomplete support
+
+### Changed
+
+- **📖 Enhanced Documentation**: Comprehensive README updates for style management
+  - Added "Quran Text Styles" section with detailed usage examples
+  - Documented all three style switching methods with code examples
+  - Included CLI usage examples for `--style` option
+  - Added environment variable configuration examples
+
+- **🏗️ Default Style**: Changed default to `UTHMANI_ALL` (previously `quran-uthmani_all.txt`)
+  - Maintains all tashkeel and harakat for most complete Quranic text
+  - Ensures backward compatibility with existing usage patterns
+
+### Fixed
+
+- **⚡ CLI Import Order**: Fixed import sequence in CLI module to respect `autoload_on_import` setting
+  - Settings modification now occurs before package imports
+  - Prevents premature database initialization with wrong style
+  - Ensures CLI style options are properly applied
+
+### Credits
+- Thanks to [@legeRise](https://github.com/legeRise) for suggesting multiple text styles and environment variable support!
+
 ## [0.1.4] - 2025-10-27
 
 ### Changed
