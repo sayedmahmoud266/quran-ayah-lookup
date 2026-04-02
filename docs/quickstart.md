@@ -352,6 +352,69 @@ methods = {
 print(f"Method: {methods[result['method']]}")
 ```
 
+## Multiple Databases (Multi-Style Cache)
+
+Since version 0.1.6 the package can keep more than one text style loaded at the same time. Every database is cached by its style key, so loading a second style never replaces the first.
+
+### Loading Two Styles Side by Side
+
+```python
+import quran_ayah_lookup as qal
+
+# UTHMANI_ALL is loaded automatically on import
+db_uthmani = qal.get_quran_database()
+
+# Load SIMPLE alongside — does not evict UTHMANI_ALL
+db_simple = qal.get_quran_database(qal.QuranStyle.SIMPLE)
+
+# Each database works independently
+verse_u = db_uthmani.get_verse(1, 1)
+verse_s  = db_simple.get_verse(1, 1)
+
+print(verse_u.text)  # Full Uthmani script with all tashkeel
+print(verse_s.text)  # Simplified script
+```
+
+### Repeated Calls Are Free (Cache Hit)
+
+```python
+# Second call returns the cached object instantly — no disk I/O
+db_a = qal.get_quran_database(qal.QuranStyle.SIMPLE)
+db_b = qal.get_quran_database(qal.QuranStyle.SIMPLE)
+assert db_a is db_b  # True — same object from cache
+```
+
+### Switching the Default Without Losing Other Databases
+
+```python
+import quran_ayah_lookup as qal
+
+db_uthmani = qal.get_quran_database()                        # default
+
+# Switch default to SIMPLE
+qal.switch_quran_style(qal.QuranStyle.SIMPLE)
+
+# get_quran_database() now returns SIMPLE
+db_simple = qal.get_quran_database()
+assert db_simple.corpus_style == qal.QuranStyle.SIMPLE
+
+# UTHMANI_ALL is still in cache
+assert qal.get_quran_database(qal.QuranStyle.UTHMANI_ALL) is db_uthmani
+```
+
+### Comparing Verse Text Across Styles
+
+```python
+import quran_ayah_lookup as qal
+
+styles = [qal.QuranStyle.UTHMANI_ALL, qal.QuranStyle.SIMPLE, qal.QuranStyle.SIMPLE_PLAIN]
+
+for style in styles:
+    db = qal.get_quran_database(style)
+    verse = db.get_verse(1, 1)
+    print(f"{style.name}: {verse.text}")
+```
+
 ## Text Normalization
 
 ### Arabic Text Processing

@@ -24,6 +24,7 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 - 💾 **Performance Cache**: Pre-computed corpus and word lists for optimal speed
 - 📊 **Basmalah-Aware Counting**: Precise verse counts with/without Basmalas
 - 🎯 **Absolute Indexing**: O(1) access to any verse by absolute position (0-6347)
+- 📚 **Multi-Database Cache**: Load multiple text styles simultaneously without eviction
 - 💻 **CLI Interface**: Command-line tool with interactive REPL mode (`qal` command)
 - 🌐 **REST API**: HTTP endpoints with Swagger documentation (`qal serve`)
 - 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
@@ -216,6 +217,36 @@ qal.initialize_quran_database()
 
 # Use the package
 verse = qal.get_verse(1, 1)
+```
+
+**Option E: Load multiple styles simultaneously (new in 0.1.6)**
+
+All loaded databases are cached independently. Loading an additional style never evicts the current default.
+
+```python
+import quran_ayah_lookup as qal
+
+# Default database loads with UTHMANI_ALL on import
+db_uthmani = qal.get_quran_database()
+
+# Load SIMPLE alongside — UTHMANI_ALL remains cached
+db_simple = qal.get_quran_database(qal.QuranStyle.SIMPLE)
+
+# Both databases are live and independent
+verse_uthmani = db_uthmani.get_verse(1, 1)
+verse_simple  = db_simple.get_verse(1, 1)
+
+print(verse_uthmani.text)  # Full Uthmani script with all tashkeel
+print(verse_simple.text)   # Simplified script
+
+# get_quran_database() still returns the original default
+assert qal.get_quran_database() is db_uthmani
+
+# switch_quran_style changes the default but keeps the old db in cache
+qal.switch_quran_style(qal.QuranStyle.SIMPLE)
+assert qal.get_quran_database() is db_simple          # new default
+assert qal.get_quran_database(qal.QuranStyle.UTHMANI_ALL) is db_uthmani  # still cached
+```
 
 ### Command Line Interface (CLI)
 
@@ -800,6 +831,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Performance Cache**: Pre-computed corpus for optimal speed (28% faster)
 - [x] **Absolute Indexing**: O(1) access to any verse by position
 - [x] **Smart Search**: Automatic method selection based on query length
+- [x] **Multiple Text Styles**: 6 Quran text styles from Tanzil.net
+- [x] **Multi-Database Cache**: Load multiple styles simultaneously without eviction
 
 ### 📋 Features To Research In The Future
 

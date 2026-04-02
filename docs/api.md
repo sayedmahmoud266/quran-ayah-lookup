@@ -225,16 +225,58 @@ normalized = qal.normalize_arabic_text("بِسْمِ ٱللَّهِ")
 
 **Returns:** Normalized Arabic text without diacritics
 
-### get_quran_database() → QuranDatabase
+### get_quran_database(_style: QuranStyle = None) → QuranDatabase
 
-Get the main database instance (loaded automatically on import).
+Get the Quran database. Behaviour depends on whether a style is passed:
+
+- **No argument** — returns the current default database (loaded automatically on import). Equivalent to the global database used by `get_verse()`, `search_text()`, etc.
+- **With a `QuranStyle`** — returns the database for that specific style. If it has not been loaded yet it is loaded from disk, cached, and returned. The current default is **not** changed.
+
+Multiple styles can coexist in the cache simultaneously; loading one style never evicts another.
 
 ```python
+import quran_ayah_lookup as qal
+
+# Returns the default database (UTHMANI_ALL unless changed by env or switch_quran_style)
 db = qal.get_quran_database()
 verse = db[3][35]  # Direct O(1) access
+
+# Load a second style alongside the default — UTHMANI_ALL stays cached
+db_simple = qal.get_quran_database(qal.QuranStyle.SIMPLE)
+verse_simple = db_simple.get_verse(1, 1)
+
+# Repeated calls for the same style return the same (cached) object
+assert qal.get_quran_database(qal.QuranStyle.SIMPLE) is db_simple  # True
+assert qal.get_quran_database() is db                              # Still the default
 ```
 
+**Parameters:**
+- `_style` (`QuranStyle`, optional): The style to retrieve. If omitted, the current default is returned.
+
 **Returns:** `QuranDatabase` object
+
+### switch_quran_style(new_style: QuranStyle) → QuranDatabase
+
+Change the default database style. The new style is loaded and cached if it was not already loaded. All previously loaded databases remain in the cache.
+
+```python
+import quran_ayah_lookup as qal
+
+# Load both styles
+db_uthmani = qal.get_quran_database()                            # default (UTHMANI_ALL)
+db_simple  = qal.get_quran_database(qal.QuranStyle.SIMPLE)      # also cached
+
+# Switch default to SIMPLE
+qal.switch_quran_style(qal.QuranStyle.SIMPLE)
+
+qal.get_quran_database()                                         # → SIMPLE db
+qal.get_quran_database(qal.QuranStyle.UTHMANI_ALL)               # → still accessible
+```
+
+**Parameters:**
+- `new_style` (`QuranStyle`): The style to make the new default.
+
+**Returns:** `QuranDatabase` for `new_style`
 
 ## Data Models
 

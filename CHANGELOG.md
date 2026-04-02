@@ -31,6 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [0.1.6]
+
+### Added
+
+- **📚 Multi-Database Cache**: Multiple Quran text styles can now be loaded and used simultaneously without evicting one another
+  - `get_quran_database()` with no arguments returns the default configured database (behaviour unchanged)
+  - `get_quran_database(QuranStyle.X)` checks the in-memory cache for style X; loads it from disk on the first call, then serves subsequent calls from cache — the current default is never changed
+  - `switch_quran_style(new_style)` updates the default style while keeping every previously loaded database in the cache; loaded databases are never discarded
+  - `initialize_quran_database(style)` is now cache-aware per style: calling it twice for the same style returns the same object without reloading
+  - All previous usage patterns remain fully backward compatible
+
+### Fixed
+
+- **🔧 Correct `corpus_style` for non-default styles**: `QuranLoader` now correctly sets `self.style` when an explicit style override is passed to the constructor. Previously, `load_quran_data()` always stamped the env-configured default style in `corpus_style` even when the data was loaded from a different style file, making `db.corpus_style` unreliable for non-default styles.
+
 ## [0.1.5] - 2026-01-24
 
 ### Added

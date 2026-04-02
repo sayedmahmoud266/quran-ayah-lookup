@@ -3,7 +3,7 @@ Quran data loader and initialization functionality.
 """
 import os
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 from .models import QuranVerse, QuranDatabase, QuranStyle, LoaderSettings, default_settings
@@ -27,6 +27,9 @@ class QuranLoader:
     def __init__(self, _style: QuranStyle = None):
         """Initialize the loader with specified style and load environment settings."""
         self._load_env()
+        # An explicit style argument takes precedence over the env-configured default
+        if _style is not None:
+            self.style = _style
         self.data_file_path = self._get_data_file_path(_style)
 
     def _load_env(self):
@@ -200,74 +203,110 @@ class QuranLoader:
         return verses_to_return
 
 
-# Global instance to be loaded once
-_quran_database: QuranDatabase = None
+# Cache of all loaded databases keyed by style
+_quran_databases: Dict[QuranStyle, QuranDatabase] = {}
 
+# The current default style (None until first initialization)
+_default_style: Optional[QuranStyle] = None
 
 
 def initialize_quran_database(_style: QuranStyle = None) -> QuranDatabase:
     """
     Initialize and load the Quran database.
-    This function is called once when the package is imported.
-    
+    This function is called once per style; subsequent calls return the cached instance.
+
+    If _style is None, the default style is determined from environment variables
+    (QAL_STYLE) or the current default_settings.
+
     Returns:
         QuranDatabase: The loaded Quran database
     """
-    global _quran_database
+    global _quran_databases
+    global _default_style
     global default_settings
-    
-    if _quran_database is None:
 
-        
-        loader = QuranLoader(_style)
-        _quran_database = loader.load_quran_data()
-        
-        # Finalize cache structures if caching is enabled
-        if default_settings.cache_enabled:
-            _quran_database.finalize_cache()
-        
-        print(f"✓ Quran database loaded successfully:")
-        print(f"  - Style: {_quran_database.corpus_style.name}, file: {_quran_database.corpus_style.value}")
-        print(f"  - Total verses: {_quran_database.total_verses}")
-        print(f"  - Total surahs: {_quran_database.total_surahs}")
-        print(f"  - Source: Tanzil.net")
-        if default_settings.cache_enabled:
-            print(f"  - Performance cache: enabled")
-    
-    return _quran_database
+    # Create the loader — this triggers _load_env() which reads env vars and
+    # updates default_settings.style to the env-configured value.
+    loader = QuranLoader(_style)
+
+    # Determine the effective style:
+    #   • if the caller explicitly requested a style, use that
+    #   • otherwise use the env/settings-configured default
+    effective_style = _style if _style is not None else default_settings.style
+
+    # Track the default style (first call without an explicit style wins unless
+    # switch_quran_style() has already been called)
+    if _default_style is None:
+        _default_style = effective_style
+
+    # Return from cache if already loaded
+    if effective_style in _quran_databases:
+        return _quran_databases[effective_style]
+
+    # Load and cache
+    db = loader.load_quran_data()
+
+    if default_settings.cache_enabled:
+        db.finalize_cache()
+
+    print(f"✓ Quran database loaded successfully:")
+    print(f"  - Style: {db.corpus_style.name}, file: {db.corpus_style.value}")
+    print(f"  - Total verses: {db.total_verses}")
+    print(f"  - Total surahs: {db.total_surahs}")
+    print(f"  - Source: Tanzil.net")
+    if default_settings.cache_enabled:
+        print(f"  - Performance cache: enabled")
+
+    _quran_databases[effective_style] = db
+    return db
 
 
 def get_quran_database(_style: QuranStyle = None) -> QuranDatabase:
     """
-    Get the initialized Quran database.
-    
+    Get the Quran database.
+
+    • Called without arguments → returns the default configured database
+      (loading it on first call if necessary).
+    • Called with a QuranStyle → returns that specific database, loading and
+      caching it if it has not been loaded yet. The default is not changed.
+
     Returns:
-        QuranDatabase: The loaded database
-    
-    Raises:
-        RuntimeError: If database is not initialized
+        QuranDatabase: The requested database
     """
-    if _quran_database is None or _quran_database.corpus_style != _style:
+    if _style is None:
+        # Return default database, initialising if needed
+        if _default_style is not None and _default_style in _quran_databases:
+            return _quran_databases[_default_style]
+        return initialize_quran_database(None)
+
+    # Specific style requested — serve from cache or load
+    if _style not in _quran_databases:
         return initialize_quran_database(_style)
-    
-    return _quran_database
+    return _quran_databases[_style]
+
 
 def switch_quran_style(new_style: QuranStyle) -> QuranDatabase:
     """
-    Switch the Quran database to a different style.
-    
+    Switch the default Quran database to a different style.
+
+    The new style is loaded and cached if not already done.  All previously
+    loaded databases remain available in the cache; nothing is discarded.
+
     Args:
-        new_style (QuranStyle): The new style to switch to.
-        
+        new_style (QuranStyle): The style to make the new default.
+
     Returns:
-        QuranDatabase: The re-initialized Quran database with the new style.
+        QuranDatabase: The Quran database for the new style.
     """
+    global _default_style
+    _default_style = new_style
     return get_quran_database(new_style)
+
 
 def update_loader_settings(new_settings: LoaderSettings):
     """
     Update the loader settings used during Quran database initialization.
-    
+
     Args:
         new_settings (LoaderSettings): New settings to apply.
     """
