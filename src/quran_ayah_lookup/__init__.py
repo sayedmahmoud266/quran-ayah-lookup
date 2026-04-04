@@ -35,6 +35,13 @@ def setup():
 
 atexit.register(setup)
 
+# Optional: vector search (requires [vector] extras + pre-built FAISS index)
+try:
+    from .vector_search import VectorSearch, vector_search
+    _VECTOR_SEARCH_AVAILABLE = True
+except ImportError:
+    _VECTOR_SEARCH_AVAILABLE = False
+
 # Public API exports
 __all__ = [
     'QuranVerse',
@@ -55,6 +62,8 @@ __all__ = [
     'default_settings',
     'switch_quran_style',
     'update_loader_settings',
+    'VectorSearch',
+    'vector_search',
 ]
 
 

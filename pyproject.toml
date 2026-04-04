@@ -44,6 +44,11 @@ api = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
 ]
+vector = [
+    "sentence-transformers>=2.0.0",
+    "faiss-cpu>=1.7.0",
+    "rank-bm25>=0.2.2",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -73,7 +78,7 @@ where = ["src"]
 "" = "src"
 
 [tool.setuptools.package-data]
-quran_ayah_lookup = ["resources/*.txt"]
+quran_ayah_lookup = ["resources/*.txt", "resources/vector/*"]
 
 [tool.black]
 line-length = 88

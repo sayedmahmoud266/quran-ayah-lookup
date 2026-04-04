@@ -25,6 +25,23 @@ from . import (
     __version__,
 )
 
+# Optional: vector search (requires [vector] extras + pre-built FAISS index)
+try:
+    from .vector_search import VectorSearch as _VectorSearch
+    _VECTOR_AVAILABLE = True
+except ImportError:
+    _VECTOR_AVAILABLE = False
+
+_vector_search_instance: Optional["_VectorSearch"] = None  # type: ignore[name-defined]
+
+
+def _get_vs():
+    """Return (or lazily create) the module-level VectorSearch instance."""
+    global _vector_search_instance
+    if _vector_search_instance is None:
+        _vector_search_instance = _VectorSearch()
+    return _vector_search_instance
+
 
 # Pydantic models for API responses
 class VerseResponse(BaseModel):
@@ -303,6 +320,7 @@ async def root():
             "fuzzy_search": "/fuzzy-search",
             "sliding_window": "/sliding-window",
             "smart_search": "/smart-search",
+            "vector_search": "/vector-search",
             "stats": "/stats"
         }
     }
@@ -599,6 +617,129 @@ async def smart_search_endpoint(
         return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get(
+    "/vector-search",
+    response_model=MultiAyahMatchResponse,
+    summary="Semantic vector search",
+    description=(
+        "Search for ayahs using meaning-aware semantic similarity via "
+        "sentence-transformers and FAISS. Supports partial ayah matching, "
+        "surah-scoped expanding-window search, and positional gravity."
+    ),
+    tags=["Search"],
+    responses={
+        200: {"description": "Vector search completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid parameters"},
+        503: {"model": ErrorResponse, "description": "Vector search extras not installed or index not built"},
+    },
+)
+async def vector_search_endpoint(
+    query: str = Query(..., min_length=1, description="Arabic text to search for"),
+    normalize: bool = Query(
+        False,
+        description="Normalise diacritics in the query before encoding (default: false)",
+    ),
+    threshold: float = Query(
+        0.7, ge=0.0, le=1.0, description="Minimum cosine similarity (0.0-1.0)"
+    ),
+    surah_hint: Optional[int] = Query(
+        None, ge=1, le=114,
+        description="Search within this surah first, expanding outward if needed",
+    ),
+    start_after_surah: Optional[int] = Query(
+        None, ge=1, le=114,
+        description="Gravity anchor: surah number (must be paired with start_after_ayah)",
+    ),
+    start_after_ayah: Optional[int] = Query(
+        None, ge=0,
+        description="Gravity anchor: ayah number (must be paired with start_after_surah)",
+    ),
+    asymmetric: bool = Query(
+        True,
+        description=(
+            "Search mode: true (default) = asymmetric e5-base + BM25 + RRF; "
+            "false = symmetric MiniLM, FAISS only."
+        ),
+    ),
+    semantic_only: bool = Query(
+        False,
+        description=(
+            "Skip BM25 and use pure FAISS cosine ranking (asymmetric mode only). "
+            "Default false."
+        ),
+    ),
+):
+    """
+    Semantic vector search over the Quran corpus.
+
+    Finds the most semantically similar ayah(s) to the query.  For **partial
+    ayah** matches (where the query covers only part of an ayah), the response
+    includes ``start_word`` and ``end_word`` to indicate the matched word range
+    within the verse.
+
+    Requires the ``[vector]`` optional extras and a pre-built FAISS index::
+
+        pip install "quran-ayah-lookup[vector]"
+        python scripts/build_vector_index.py
+
+    **Parameters:**
+
+    - **query**: Arabic text to search for.
+    - **normalize**: Strip diacritics from the query before encoding (default: ``false``).
+    - **threshold**: Minimum cosine similarity 0.0–1.0 (default: ``0.7``).
+    - **surah_hint**: If set, the search starts within this surah and expands ±1, ±2, …
+      until a confident result is found.
+    - **start_after_surah** / **start_after_ayah**: Together they define a gravity anchor.
+      Results appearing after this position receive a 15 % ranking boost.
+
+    **Examples:**
+
+    - ``/vector-search?query=الله لا إله إلا هو الحي القيوم&surah_hint=2``
+      → returns 2:255 with ``start_word=0``, ``end_word=10`` (partial ayah).
+    - ``/vector-search?query=الرحمن علم القران خلق الانسان&surah_hint=55``
+      → returns a multi-ayah match across Surah 55.
+    """
+    if not _VECTOR_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Vector search is not available. "
+                'Install the optional extras with: pip install "quran-ayah-lookup[vector]" '
+                "and build the index with: python scripts/build_vector_index.py"
+            ),
+        )
+
+    # Validate that start_after_surah and start_after_ayah are paired
+    if (start_after_surah is None) != (start_after_ayah is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_after_surah and start_after_ayah must both be provided or both omitted.",
+        )
+    start_after = (
+        (start_after_surah, start_after_ayah)
+        if start_after_surah is not None
+        else None
+    )
+
+    try:
+        vs = _get_vs()
+        match = vs.vector_search(
+            query,
+            normalize=normalize,
+            threshold=threshold,
+            surah_hint=surah_hint,
+            start_after=start_after,
+            asymmetric=asymmetric,
+            semantic_only=semantic_only,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return multi_ayah_match_to_response(match)
 
 
 @app.get(

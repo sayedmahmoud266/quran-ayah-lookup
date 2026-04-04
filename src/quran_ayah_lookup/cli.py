@@ -25,6 +25,13 @@ from . import (
     QuranStyle,
 )
 
+# Optional: vector search (requires [vector] extras + pre-built FAISS index)
+try:
+    from .vector_search import VectorSearch
+    _VECTOR_AVAILABLE = True
+except ImportError:
+    _VECTOR_AVAILABLE = False
+
 def style_option(f):
     """Click option for selecting Quran style/version."""
     @click.option("--style", "-s", type=click.Choice([style.name for style in QuranStyle]), default=None, help="Quran text style/version to use")
@@ -372,10 +379,124 @@ def smart_search_cmd(ctx, query: str, fuzzy_threshold: float, sliding_threshold:
                 click.echo(f"Verses involved: {len(match.verses)}")
                 for verse in match.verses:
                     click.echo(f"  - Surah {verse.surah_number}:{verse.ayah_number}")
-            
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+@cli.command(name="vector-search", help="Semantic vector search using sentence-transformers and FAISS")
+@click.argument("query")
+@click.option("--normalize", "-n", is_flag=True, default=False,
+              help="Normalise diacritics in the query before searching")
+@click.option("--threshold", "-t", type=float, default=0.7,
+              help="Minimum cosine similarity (0.0-1.0, default: 0.7)")
+@click.option("--surah-hint", type=int, default=None, metavar="SURAH",
+              help="Search within this surah first, expanding outward if needed")
+@click.option("--start-after", type=str, default=None, metavar="SURAH:AYAH",
+              help="Gravity anchor: boost results after this position (e.g. '2:254')")
+@click.option("--asymmetric/--symmetric", default=True,
+              help="Use asymmetric e5-base+BM25 search (default) or symmetric MiniLM search")
+@click.option("--semantic-only", is_flag=True, default=False,
+              help="Skip BM25 and use pure FAISS cosine ranking (asymmetric mode only)")
+@style_option
+@click.pass_context
+def vector_search_cmd(ctx, query: str, normalize: bool, threshold: float,
+                      surah_hint: Optional[int], start_after: Optional[str],
+                      asymmetric: bool, semantic_only: bool):
+    """
+    Semantic vector search using sentence-transformers and FAISS.
+
+    Finds the most semantically similar ayah(s) to the query, including partial
+    ayah matches.  For partial matches, start_word and end_word indicate the
+    matched portion within the verse.
+
+    Requires the [vector] extras and a pre-built index:
+
+    \b
+        pip install "quran-ayah-lookup[vector]"
+        make build-vector-index
+
+    Examples:
+
+    \b
+        qal vector-search "الله لا إله إلا هو الحي القيوم" --surah-hint 2
+        qal vector-search "الرحمن علم القران" --threshold 0.6
+        qal vector-search "ربنا آتنا" --start-after 2:200
+        qal vector-search "بسم الله" --symmetric
+    """
+    if not _VECTOR_AVAILABLE:
+        click.echo(
+            "Error: Vector search extras not installed.\n"
+            "Run: pip install \"quran-ayah-lookup[vector]\"",
+            err=True,
+        )
+        sys.exit(1)
+
+    # Parse --start-after "surah:ayah"
+    start_after_tuple = None
+    if start_after:
+        try:
+            parts = start_after.split(":")
+            if len(parts) != 2:
+                raise ValueError
+            start_after_tuple = (int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            click.echo(
+                f"Error: --start-after must be in 'surah:ayah' format (e.g. '2:254'), "
+                f"got '{start_after}'",
+                err=True,
+            )
+            sys.exit(1)
+
+    if threshold < 0.0 or threshold > 1.0:
+        click.echo("Error: Threshold must be between 0.0 and 1.0", err=True)
+        sys.exit(1)
+
+    try:
+        vs = VectorSearch()
+        match = vs.vector_search(
+            query,
+            normalize=normalize,
+            threshold=threshold,
+            surah_hint=surah_hint,
+            start_after=start_after_tuple,
+            asymmetric=asymmetric,
+            semantic_only=semantic_only,
+        )
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+    if not match.verses:
+        click.echo(f"No match found for '{query}' with threshold {threshold}")
+        return
+
+    # Determine if result is partial
+    first_verse = match.verses[0]
+    verse_word_count = len(first_verse.text_normalized.split())
+    is_partial = (
+        len(match.verses) == 1
+        and (match.start_word > 0 or match.end_word < verse_word_count)
+    )
+
+    click.echo(f"Reference  : {match.get_reference()}")
+    click.echo(f"Similarity : {match.similarity:.1f}%")
+    click.echo(f"Mode       : {'Asymmetric (e5-base, semantic only)' if asymmetric and semantic_only else 'Asymmetric (e5-base+BM25)' if asymmetric else 'Symmetric (MiniLM)'}")
+    if is_partial:
+        click.echo(
+            f"Match type : Partial ayah "
+            f"(words {match.start_word}–{match.end_word} of {verse_word_count})"
+        )
+    else:
+        click.echo(f"Match type : {'Multi-ayah' if len(match.verses) > 1 else 'Full ayah'}")
+    click.echo(f"Matched    : {match.matched_text}")
+    click.echo("=" * 60)
+    for verse in match.verses:
+        display_verse(verse, compact=True)
 
 
 @cli.command(name="stats", help="Show database statistics")
@@ -461,7 +582,8 @@ def repl_mode():
     click.echo("  verse <surah> <ayah>       - Get a specific verse")
     click.echo("  surah <number>             - Get surah information")
     click.echo("  search <query>             - Search for text")
-    click.echo("  fuzzy <query>              - Fuzzy search")
+    click.echo("  fuzzy <query>             - Fuzzy search")
+    click.echo("  vector <query>            - Semantic vector search")
     click.echo("  stats                      - Show database stats")
     click.echo("  help                       - Show this help")
     click.echo("  exit / quit / Ctrl+C       - Exit REPL")
@@ -526,6 +648,26 @@ def repl_mode():
                     display_verse(result.verse, compact=True)
                 if len(results) > 5:
                     click.echo(f"\n... and {len(results) - 5} more")
+            elif command == "vector" and len(parts) >= 2:
+                if not _VECTOR_AVAILABLE:
+                    click.echo(
+                        'Vector search not available. '
+                        'Run: pip install "quran-ayah-lookup[vector]"'
+                    )
+                else:
+                    query = " ".join(parts[1:])
+                    try:
+                        vs = VectorSearch()
+                        match = vs.vector_search(query)
+                        if not match.verses:
+                            click.echo(f"No match found for '{query}'")
+                        else:
+                            click.echo(f"Reference: {match.get_reference()} | Similarity: {match.similarity:.1f}%")
+                            click.echo(f"Matched: {match.matched_text}")
+                            for verse in match.verses:
+                                display_verse(verse, compact=True)
+                    except FileNotFoundError as e:
+                        click.echo(f"Error: {e}")
             elif command == "stats":
                 db = get_quran_database()
                 click.echo(f"Total surahs: {len(db.surahs)}")

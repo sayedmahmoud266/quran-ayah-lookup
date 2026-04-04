@@ -25,6 +25,7 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 - 📊 **Basmalah-Aware Counting**: Precise verse counts with/without Basmalas
 - 🎯 **Absolute Indexing**: O(1) access to any verse by absolute position (0-6347)
 - 📚 **Multi-Database Cache**: Load multiple text styles simultaneously without eviction
+- 🔮 **Semantic Vector Search**: Hybrid semantic+lexical search (e5-base + BM25 + RRF, or MiniLM cosine) via optional `[vector]` extras
 - 💻 **CLI Interface**: Command-line tool with interactive REPL mode (`qal` command)
 - 🌐 **REST API**: HTTP endpoints with Swagger documentation (`qal serve`)
 - 🕌 **Arabic Only**: Focused on Arabic Quranic text (no translations supported)
@@ -596,6 +597,7 @@ Once the server is running, access the interactive documentation:
 - `GET /fuzzy-search?query={text}&threshold={0.7}` - Fuzzy search
 - `GET /sliding-window?query={text}&threshold={80.0}` - Multi-ayah sliding window search
 - `GET /smart-search?query={text}` - Smart search (auto-selects method)
+- `GET /vector-search?query={text}&asymmetric=true&semantic_only=false` - Semantic vector search (requires `[vector]` extras)
 - `GET /stats` - Database statistics
 - `GET /health` - Health check
 
@@ -653,6 +655,99 @@ print(f"Used {smart_result['method']} search")
 ```
 
 For complete API documentation, see [docs/api.md](docs/api.md#rest-api-reference).
+
+## Semantic Vector Search
+
+Hybrid semantic search powered by sentence-transformers and FAISS. Requires the optional `[vector]` extras.
+
+### Installation
+
+```bash
+pip install "quran-ayah-lookup[vector]"
+make build-vector-index   # builds all 5 index artefacts in resources/vector/
+```
+
+### Retrieval Modes
+
+| Mode | Model | Method | Best for |
+|------|-------|--------|----------|
+| **Asymmetric** (default) | `intfloat/multilingual-e5-base` (768-dim) | FAISS cosine + BM25Okapi fused via RRF (k=60) | General queries, mixed Arabic/meaning |
+| **Symmetric** | `paraphrase-multilingual-MiniLM-L12-v2` (384-dim) | FAISS cosine only | Paraphrase / meaning-only queries |
+
+The `semantic_only=True` flag disables BM25+RRF in asymmetric mode and uses pure FAISS cosine ranking.
+
+### Python Library
+
+```python
+from quran_ayah_lookup.vector_search import VectorSearch
+
+vs = VectorSearch()
+
+# Default: asymmetric (e5-base + BM25 + RRF)
+result = vs.vector_search("الرحمن علم القران", threshold=0.7)
+
+# Symmetric mode (MiniLM, FAISS only)
+result = vs.vector_search("mercy and compassion", asymmetric=False)
+
+# Pure FAISS cosine — no BM25 or RRF
+result = vs.vector_search("آية الكرسي", semantic_only=True)
+
+# Restrict to a surah (expands ±1, ±2, … if no confident match found)
+result = vs.vector_search("وما خلقت", surah_hint=51, threshold=0.75)
+
+# Boost verses that appear after a given position
+result = vs.vector_search("يا أيها الناس", start_after=(2, 100))
+
+print(result.get_reference())   # e.g. "2:255"
+print(result.matched_text)
+```
+
+### CLI
+
+```bash
+# Default asymmetric search
+qal vector-search "الرحمن علم القران"
+
+# Symmetric mode
+qal vector-search "mercy and compassion" --symmetric
+
+# Pure FAISS cosine (skip BM25+RRF)
+qal vector-search "آية الكرسي" --semantic-only
+
+# Restrict to Surah 2, custom threshold
+qal vector-search "الله لا إله إلا هو" --surah-hint 2 --threshold 0.8
+
+# Start-after positional hint
+qal vector-search "يا أيها الناس" --start-after 2:100
+
+# Normalize query before search
+qal vector-search "بسم الله الرحمن الرحيم" --normalize
+```
+
+### REST API
+
+```bash
+# Default asymmetric
+curl "http://127.0.0.1:8000/vector-search?query=الرحمن%20علم%20القران"
+
+# Symmetric mode
+curl "http://127.0.0.1:8000/vector-search?query=mercy&asymmetric=false"
+
+# Semantic-only (no BM25)
+curl "http://127.0.0.1:8000/vector-search?query=آية%20الكرسي&semantic_only=true"
+
+# With surah hint and threshold
+curl "http://127.0.0.1:8000/vector-search?query=الله%20لا%20إله%20إلا%20هو&surah_hint=2&threshold=0.8"
+```
+
+Returns the same `MultiAyahMatch` response model as `/sliding-window`. Returns `503` if `[vector]` extras are not installed or the index has not been built.
+
+### Advanced Features
+
+- **Partial ayah detection**: `start_word`/`end_word` fields indicate which words matched within a verse
+- **Sequence detection**: queries longer than 1.3× the matched verse automatically append the next 1–3 consecutive verses
+- **Positional gravity**: `start_after` applies a 15 % RRF score boost to later verses (ranking-only, does not affect reported similarity)
+- **Expanding surah window**: `surah_hint` first searches only that surah, then expands ±1, ±2, … until a confident result is found
 
 ## Performance
 
@@ -730,6 +825,14 @@ normalized = qal.normalize_arabic_text(text)
 
 Install with: `pip install "quran-ayah-lookup[api]"`
 
+### Optional (for Semantic Vector Search)
+
+- sentence-transformers
+- faiss-cpu
+- rank-bm25
+
+Install with: `pip install "quran-ayah-lookup[vector]"` then build the index: `make build-vector-index`
+
 ## Development
 
 ### Setting up Development Environment
@@ -775,6 +878,7 @@ make check              # Run all checks (format, lint, typecheck, test)
 make build              # Build the package
 make clean              # Clean build artifacts
 make clean-all          # Clean everything including virtual environment
+make build-vector-index # Build FAISS + BM25 vector search indexes (requires [vector] extras)
 make setup-dev          # Complete development setup (init + install-deps-dev)
 make publish-test       # Publish to test PyPI
 make publish            # Publish to PyPI
@@ -833,6 +937,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Smart Search**: Automatic method selection based on query length
 - [x] **Multiple Text Styles**: 6 Quran text styles from Tanzil.net
 - [x] **Multi-Database Cache**: Load multiple styles simultaneously without eviction
+- [x] **Semantic Vector Search**: Hybrid semantic+lexical search with dual retrieval modes (asymmetric e5-base+BM25+RRF / symmetric MiniLM FAISS)
 
 ### 📋 Features To Research In The Future
 

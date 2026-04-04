@@ -70,6 +70,14 @@ typecheck: ## Type check with mypy
 check: format lint typecheck test ## Run all checks (format, lint, typecheck, test)
 	@echo "All checks completed."
 
+# Build FAISS vector index for semantic search
+build-vector-index: ## Build the FAISS vector index for semantic search (requires [vector] extras)
+	@echo "Building FAISS vector index for semantic search..."
+	@$(PYTHON_VENV) -c "import faiss" 2>/dev/null || \
+		(echo "Vector extras not installed. Run: pip install 'quran-ayah-lookup[vector]'" && exit 1)
+	$(PYTHON_VENV) scripts/build_vector_index.py
+	@echo "Vector index built. Files saved to src/quran_ayah_lookup/resources/vector/"
+
 # Build package
 build: ## Build the package
 	@echo "Building package..."
@@ -129,4 +137,4 @@ serve-cov: ## Serve coverage report in browser
 	@echo "Serving coverage report at http://localhost:8000"
 	cd htmlcov && python3 -m http.server 8000
 
-.PHONY: help init install-deps install-deps-dev test test-coverage format lint typecheck check build clean clean-all install-dev publish-test publish setup-dev
+.PHONY: help init install-deps install-deps-dev test test-coverage format lint typecheck check build build-vector-index clean clean-all install-dev publish-test publish setup-dev

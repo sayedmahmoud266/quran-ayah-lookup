@@ -9,32 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- N/A
-
-### Changed
-
-- N/A
-
-### Deprecated
-
-- N/A
-
-### Removed
-
-- N/A
-
-### Fixed
-
-- N/A
-
-### Security
-
-- N/A
-
-## [0.1.6]
-
-### Added
-
+- **🔮 Semantic Vector Search**: New hybrid semantic search powered by sentence-transformers and FAISS
+  - **Dual retrieval mode** controlled by `asymmetric` parameter (default `True`):
+    - **Asymmetric** (`asymmetric=True`): `intfloat/multilingual-e5-base` (768-dim) + BM25Okapi lexical retrieval fused via Reciprocal Rank Fusion (RRF, k=60). Best overall accuracy — exact Arabic terms are never drowned out by semantic similarity
+    - **Symmetric** (`asymmetric=False`): `paraphrase-multilingual-MiniLM-L12-v2` (384-dim), FAISS cosine only. Lightweight alternative for paraphrase-style queries
+  - **`semantic_only` flag** (`False` by default): skips BM25+RRF in asymmetric mode and uses pure FAISS cosine ranking when `True`
+  - **Partial ayah detection**: `start_word`/`end_word` fields indicate which portion of a verse matched (e.g. querying the first half of Ayat al-Kursi returns `2:255` with the precise word range)
+  - **Surah-scoped expanding window**: `surah_hint` parameter initially restricts search to one surah, then expands ±1, ±2, … until a confident match is found
+  - **Positional gravity**: `start_after=(surah, ayah)` boosts results that appear later in the Quran (15 % RRF score boost, ranking-only — does not inflate reported similarity)
+  - **Sequence detection**: queries longer than 1.3× the best-matching verse automatically include the next 1–3 consecutive verses in the result
+  - **Pre-built index script**: `scripts/build_vector_index.py` builds all five artefacts in one run:
+    - `resources/vector/faiss_index.bin` — asymmetric dense index
+    - `resources/vector/vindex_mapping.json` — asymmetric vector-ID → (surah, ayah) mapping
+    - `resources/vector/bm25_index.pkl` — BM25Okapi lexical index
+    - `resources/vector/faiss_sym_index.bin` — symmetric dense index
+    - `resources/vector/vindex_sym_mapping.json` — symmetric mapping
+  - **`make build-vector-index`** Makefile target for index construction
+  - Available in all three access modes:
+    - **Library**: `VectorSearch` class and `vector_search()` convenience function
+    - **CLI**: `qal vector-search <query>` with `--asymmetric/--symmetric`, `--semantic-only`, `--surah-hint`, `--start-after`, `--threshold`, `--normalize` flags
+    - **REST API**: `GET /vector-search` endpoint with equivalent query parameters
+  - Optional extras: `pip install "quran-ayah-lookup[vector]"` (`sentence-transformers`, `faiss-cpu`, `rank-bm25`)
+  
 - **📚 Multi-Database Cache**: Multiple Quran text styles can now be loaded and used simultaneously without evicting one another
   - `get_quran_database()` with no arguments returns the default configured database (behaviour unchanged)
   - `get_quran_database(QuranStyle.X)` checks the in-memory cache for style X; loads it from disk on the first call, then serves subsequent calls from cache — the current default is never changed
