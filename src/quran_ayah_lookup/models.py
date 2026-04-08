@@ -446,17 +446,73 @@ class QuranDatabase:
         
         return result_verses
     
-    def search_text(self, query: str, normalized: bool = True) -> List[QuranVerse]:
+    def _get_surah_range_verses(self, surah_from: int, surah_to: int) -> List['QuranVerse']:
+        """Return all verses from surahs in [surah_from, surah_to] inclusive."""
+        verses = []
+        for surah_num in range(surah_from, surah_to + 1):
+            if surah_num in self.surahs:
+                verses.extend(self.surahs[surah_num].get_all_verses())
+        return verses
+
+    def _get_verses_after_position(self, ref_surah: int, ref_ayah: int) -> List['QuranVerse']:
+        """Return all verses that appear after (ref_surah, ref_ayah) in Quran order."""
+        ref = (ref_surah, ref_ayah)
+        return [v for v in self.get_all_verses() if (v.surah_number, v.ayah_number) > ref]
+
+    def search_text(self, query: str, normalized: bool = True,
+                    surah_hint: Optional[int] = None,
+                    start_after: Optional[tuple] = None) -> List[QuranVerse]:
         """
         Search for verses containing the query text.
-        
+
         Args:
             query: Text to search for
             normalized: Whether to search in normalized text (default: True)
-        
+            surah_hint: Optional surah number to search first; expands ±1, ±3 then full Quran
+            start_after: Optional (surah, ayah) tuple; searches after this position, fallback to full Quran
+
         Returns:
             List of matching verses
         """
+        def _do_search(verses):
+            results = []
+            for verse in verses:
+                text = verse.text_normalized if normalized else verse.text
+                if query in text:
+                    results.append(verse)
+            return results
+
+        if surah_hint is not None:
+            _hint = max(1, min(114, surah_hint))
+            for radius in [0, 1, 3]:
+                s_from = max(1, _hint - radius)
+                s_to = min(114, _hint + radius)
+                subset = self._get_surah_range_verses(s_from, s_to)
+                if start_after is not None:
+                    ref = start_after
+                    subset = [v for v in subset if (v.surah_number, v.ayah_number) > ref]
+                results = _do_search(subset)
+                if results:
+                    return results
+            # Fallback: full corpus, re-sort by surah proximity
+            all_results = _do_search(self.get_all_verses())
+            return sorted(all_results, key=lambda v: (
+                abs(v.surah_number - _hint), v.surah_number, v.ayah_number
+            ))
+
+        if start_after is not None:
+            ref_surah, ref_ayah = start_after
+            after_verses = self._get_verses_after_position(ref_surah, ref_ayah)
+            results = _do_search(after_verses)
+            if results:
+                return results
+            # Fallback: full corpus, results after anchor ranked first
+            all_results = _do_search(self.get_all_verses())
+            return sorted(all_results, key=lambda v: (
+                0 if (v.surah_number, v.ayah_number) > (ref_surah, ref_ayah) else 1,
+                v.surah_number, v.ayah_number
+            ))
+
         results = []
         for surah in self.surahs.values():
             for verse in surah.get_all_verses():
@@ -465,22 +521,55 @@ class QuranDatabase:
                     results.append(verse)
         return results
     
-    def fuzzy_search(self, query: str, threshold: float = 0.7, normalized: bool = True, 
-                    max_results: Optional[int] = None) -> List['FuzzySearchResult']:
+    def fuzzy_search(self, query: str, threshold: float = 0.7, normalized: bool = True,
+                    max_results: Optional[int] = None,
+                    surah_hint: Optional[int] = None,
+                    start_after: Optional[tuple] = None) -> List['FuzzySearchResult']:
         """
         Perform fuzzy search with partial text matching across all verses.
-        
+
         Args:
             query: Text to search for
             threshold: Minimum similarity score (0.0-1.0)
             normalized: Whether to search in normalized text (default: True)
             max_results: Maximum number of results to return (None for no limit)
-        
+            surah_hint: Optional surah number to search first; expands ±1, ±3 then full Quran
+            start_after: Optional (surah, ayah) tuple; searches after this position, fallback to full Quran
+
         Returns:
             List of FuzzySearchResult objects sorted by similarity score
         """
         from .text_utils import fuzzy_search_text
-        
+
+        if surah_hint is not None:
+            _hint = max(1, min(114, surah_hint))
+            for radius in [0, 1, 3]:
+                s_from = max(1, _hint - radius)
+                s_to = min(114, _hint + radius)
+                subset = self._get_surah_range_verses(s_from, s_to)
+                if start_after is not None:
+                    ref = start_after
+                    subset = [v for v in subset if (v.surah_number, v.ayah_number) > ref]
+                results = fuzzy_search_text(query, subset, threshold, normalized, max_results)
+                if results:
+                    return results
+            # Fallback: full corpus, re-sort by surah proximity
+            all_results = fuzzy_search_text(query, self.get_all_verses(), threshold, normalized, max_results)
+            return sorted(all_results, key=lambda r: (-r.similarity, abs(r.verse.surah_number - _hint)))
+
+        if start_after is not None:
+            ref_surah, ref_ayah = start_after
+            after_verses = self._get_verses_after_position(ref_surah, ref_ayah)
+            results = fuzzy_search_text(query, after_verses, threshold, normalized, max_results)
+            if results:
+                return results
+            # Fallback: full corpus, results after anchor ranked first
+            all_results = fuzzy_search_text(query, self.get_all_verses(), threshold, normalized, max_results)
+            return sorted(all_results, key=lambda r: (
+                0 if (r.verse.surah_number, r.verse.ayah_number) > (ref_surah, ref_ayah) else 1,
+                -r.similarity
+            ))
+
         all_verses = self.get_all_verses()
         return fuzzy_search_text(query, all_verses, threshold, normalized, max_results)
     

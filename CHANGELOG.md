@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **🎯 Contextual Search Hints** (`surah_hint` and `start_after` parameters): All non-vector search methods now accept two optional positional-hint parameters that guide where to look before falling back to a full-corpus scan.
+
+  - **`surah_hint: int`** — restricts the initial search to the given surah (1-114). If nothing meets the threshold it expands the window ±1, then ±3 surahs, and finally falls back to the entire Quran. Any fallback results are re-sorted so verses nearer the hinted surah appear first.
+  - **`start_after: tuple[int, int]`** — accepts a `(surah, ayah)` pair and searches only verses that appear after that position. On failure it falls back to the full Quran and prioritises matches that appear later in the text.
+  - Applies to all four search methods: `search_text`, `fuzzy_search`, `search_sliding_window`, and `smart_search` (which propagates the hints through its internal cascade).
+  - Both parameters are fully **backward-compatible** — existing call sites that omit them behave exactly as before.
+  - Available in all three access modes:
+    - **Library**: keyword arguments on every search function and on `QuranDatabase` methods
+    - **CLI**: `--surah-hint SURAH` and `--start-after SURAH:AYAH` flags on `search`, `fuzzy`, `sliding-window`, and `smart-search` commands
+    - **REST API**: `surah_hint`, `start_after_surah`, and `start_after_ayah` query parameters on `/search`, `/fuzzy-search`, `/sliding-window`, and `/smart-search` (pairing `start_after_surah` without `start_after_ayah` returns HTTP 400)
+
 - **🔮 Semantic Vector Search**: New hybrid semantic search powered by sentence-transformers and FAISS
   - **Dual retrieval mode** controlled by `asymmetric` parameter (default `True`):
     - **Asymmetric** (`asymmetric=True`): `intfloat/multilingual-e5-base` (768-dim) + BM25Okapi lexical retrieval fused via Reciprocal Rank Fusion (RRF, k=60). Best overall accuracy — exact Arabic terms are never drowned out by semantic similarity

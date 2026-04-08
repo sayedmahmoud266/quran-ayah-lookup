@@ -157,6 +157,9 @@ class TestImportGuards:
         fake_bm25_mod = types.ModuleType("rank_bm25")
         fake_bm25_mod.BM25Okapi = MagicMock()
 
+        # Access the real module (not the shadowed function in quran_ayah_lookup namespace)
+        vs_mod = sys.modules["quran_ayah_lookup.vector_search"]
+
         with patch.dict(
             sys.modules,
             {
@@ -166,22 +169,11 @@ class TestImportGuards:
                 "numpy": np,
             },
         ):
-            with patch(
-                "quran_ayah_lookup.vector_search._INDEX_PATH",
-                str(tmp_path / "nonexistent.bin"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._MAPPING_PATH",
-                str(tmp_path / "nonexistent.json"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._BM25_PATH",
-                str(tmp_path / "nonexistent.pkl"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._SYM_INDEX_PATH",
-                str(tmp_path / "nonexistent_sym.bin"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._SYM_MAPPING_PATH",
-                str(tmp_path / "nonexistent_sym.json"),
-            ):
+            with patch.object(vs_mod, '_INDEX_PATH', str(tmp_path / "nonexistent.bin")), \
+                 patch.object(vs_mod, '_MAPPING_PATH', str(tmp_path / "nonexistent.json")), \
+                 patch.object(vs_mod, '_BM25_PATH', str(tmp_path / "nonexistent.pkl")), \
+                 patch.object(vs_mod, '_SYM_INDEX_PATH', str(tmp_path / "nonexistent_sym.bin")), \
+                 patch.object(vs_mod, '_SYM_MAPPING_PATH', str(tmp_path / "nonexistent_sym.json")):
                 with pytest.raises(FileNotFoundError, match="build_vector_index"):
                     VectorSearch()
 
@@ -192,6 +184,10 @@ class TestImportGuards:
         fake_st = types.ModuleType("sentence_transformers")
         fake_bm25_mod = types.ModuleType("rank_bm25")
         fake_bm25_mod.BM25Okapi = MagicMock()
+
+        # Access the real module (not the shadowed function in quran_ayah_lookup namespace)
+        vs_mod = sys.modules["quran_ayah_lookup.vector_search"]
+
         with patch.dict(
             sys.modules,
             {
@@ -201,22 +197,11 @@ class TestImportGuards:
                 "numpy": np,
             },
         ):
-            with patch(
-                "quran_ayah_lookup.vector_search._INDEX_PATH",
-                str(tmp_path / "x.bin"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._MAPPING_PATH",
-                str(tmp_path / "x.json"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._BM25_PATH",
-                str(tmp_path / "x.pkl"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._SYM_INDEX_PATH",
-                str(tmp_path / "x_sym.bin"),
-            ), patch(
-                "quran_ayah_lookup.vector_search._SYM_MAPPING_PATH",
-                str(tmp_path / "x_sym.json"),
-            ):
+            with patch.object(vs_mod, '_INDEX_PATH', str(tmp_path / "x.bin")), \
+                 patch.object(vs_mod, '_MAPPING_PATH', str(tmp_path / "x.json")), \
+                 patch.object(vs_mod, '_BM25_PATH', str(tmp_path / "x.pkl")), \
+                 patch.object(vs_mod, '_SYM_INDEX_PATH', str(tmp_path / "x_sym.bin")), \
+                 patch.object(vs_mod, '_SYM_MAPPING_PATH', str(tmp_path / "x_sym.json")):
                 try:
                     VectorSearch()
                 except FileNotFoundError as exc:

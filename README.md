@@ -17,6 +17,7 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 - 🎯 **Fuzzy Search**: Advanced partial text matching with similarity scoring
 - 🔄 **Multi-Ayah Search**: Sliding window search for text spanning multiple verses
 - 🧠 **Smart Search**: Automatic method selection for optimal results
+- 📍 **Contextual Search Hints**: `surah_hint` and `start_after` narrow the initial search window before falling back to the full corpus — available across all search methods, CLI flags, and REST API params
 - 📏 **Word-level Positioning**: Precise match locations within verses
 - 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
 - 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
@@ -97,6 +98,17 @@ print(f"Used {smart_result['method']} search, found {smart_result['count']} resu
 # Find repeated phrases
 repeated = qal.fuzzy_search("فبأي الاء ربكما تكذبان")
 print(f"Found {len(repeated)} occurrences of this repeated phrase")
+
+# --- Contextual search hints ---
+
+# surah_hint: search Surah 12 first, expand ±1/±3, then full Quran
+results = qal.search_text("يجتبيك", surah_hint=12)
+
+# start_after: only return results after Surah 2, Ayah 255
+results = qal.fuzzy_search("الله لا اله الا هو", start_after=(2, 255))
+
+# Combine both hints in smart_search
+result = qal.smart_search("علم القران", surah_hint=55, start_after=(54, 55))
 
 # Check verse existence (O(1))
 if 35 in surah:
@@ -290,6 +302,12 @@ qal search "الله" --limit 5
 
 # Search in original text (with diacritics)
 qal search "بِسْمِ" --original
+
+# Restrict search to Surah 2 first, then expand
+qal search "الله" --surah-hint 2
+
+# Search only after Surah 2:255
+qal search "الله" --start-after 2:255
 ```
 
 #### Fuzzy Search
@@ -302,8 +320,13 @@ qal fuzzy "كذلك يجتبيك ربك ويعلمك"
 qal fuzzy "بسم الله" --threshold 0.9
 
 # Limit fuzzy search results
-# Limit fuzzy search results
 qal fuzzy "الله" --limit 10
+
+# Restrict to a surah before expanding to full Quran
+qal fuzzy "الرحمن" --surah-hint 55
+
+# Start after a specific position
+qal fuzzy "الله" --start-after 2:255
 ```
 
 #### Sliding Window Search (Multi-Ayah)
@@ -317,6 +340,12 @@ qal sliding-window "بسم الله الرحمن الرحيم الحمد لله"
 
 # Limit results
 qal sliding-window "الرحمن علم القران" --limit 5
+
+# Hint to search in Surah 55 first
+qal sliding-window "الرحمن علم القران" --surah-hint 55
+
+# Start after a specific position
+qal sliding-window "الله" --start-after 54:55
 ```
 
 #### Smart Search (Automatic Method Selection)
@@ -330,6 +359,10 @@ qal smart-search "الحمد لله" --fuzzy-threshold 0.8 --sliding-threshold 8
 
 # Limit results
 qal smart-search "بسم الله" --limit 10
+
+# With contextual hints
+qal smart-search "علم القران" --surah-hint 55
+qal smart-search "الله" --start-after 2:255
 ```
 
 #### List All Verses in a Surah
@@ -593,13 +626,15 @@ Once the server is running, access the interactive documentation:
 - `GET /verses/{surah}/{ayah}` - Get a specific verse
 - `GET /surahs/{surah}` - Get surah information
 - `GET /surahs/{surah}/verses` - Get all verses in a surah
-- `GET /search?query={text}` - Search for verses
-- `GET /fuzzy-search?query={text}&threshold={0.7}` - Fuzzy search
-- `GET /sliding-window?query={text}&threshold={80.0}` - Multi-ayah sliding window search
-- `GET /smart-search?query={text}` - Smart search (auto-selects method)
+- `GET /search?query={text}&surah_hint={n}&start_after_surah={n}&start_after_ayah={n}` - Search for verses
+- `GET /fuzzy-search?query={text}&threshold={0.7}&surah_hint={n}&start_after_surah={n}&start_after_ayah={n}` - Fuzzy search
+- `GET /sliding-window?query={text}&threshold={80.0}&surah_hint={n}&start_after_surah={n}&start_after_ayah={n}` - Multi-ayah sliding window search
+- `GET /smart-search?query={text}&surah_hint={n}&start_after_surah={n}&start_after_ayah={n}` - Smart search (auto-selects method)
 - `GET /vector-search?query={text}&asymmetric=true&semantic_only=false` - Semantic vector search (requires `[vector]` extras)
 - `GET /stats` - Database statistics
 - `GET /health` - Health check
+
+> **Note**: `start_after_surah` and `start_after_ayah` must always be provided together — passing only one returns HTTP 400.
 
 ### Quick API Example
 
@@ -797,11 +832,17 @@ len(surah)  # Verse count
 surah.has_basmala()  # Check for Basmala
 
 # Search and utility
-results = qal.search_text(query, normalized=True)
-fuzzy_results = qal.fuzzy_search(query, threshold=0.7, max_results=10)
+results = qal.search_text(query, normalized=True, surah_hint=None, start_after=None)
+fuzzy_results = qal.fuzzy_search(query, threshold=0.7, max_results=10, surah_hint=None, start_after=None)
+sliding_results = qal.search_sliding_window(query, threshold=80.0, max_results=None, surah_hint=None, start_after=None)
+smart_result = qal.smart_search(query, threshold=0.7, sliding_threshold=80.0, surah_hint=None, start_after=None)
 verses = qal.get_surah_verses(surah_number)
 normalized = qal.normalize_arabic_text(text)
 ```
+
+**Contextual hint parameters (all search functions):**
+- `surah_hint` (int, optional): Search in this surah first; expands ±1, ±3 surahs, then full Quran. Fallback results sorted by proximity to the hint.
+- `start_after` (tuple, optional): `(surah, ayah)` position; only searches verses after this point. Falls back to full Quran if nothing found, prioritising later matches.
 
 ### Data Models
 
@@ -938,6 +979,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Multiple Text Styles**: 6 Quran text styles from Tanzil.net
 - [x] **Multi-Database Cache**: Load multiple styles simultaneously without eviction
 - [x] **Semantic Vector Search**: Hybrid semantic+lexical search with dual retrieval modes (asymmetric e5-base+BM25+RRF / symmetric MiniLM FAISS)
+- [x] **Contextual Search Hints**: `surah_hint` and `start_after` for all non-vector search methods (library, CLI, REST API)
 
 ### 📋 Features To Research In The Future
 

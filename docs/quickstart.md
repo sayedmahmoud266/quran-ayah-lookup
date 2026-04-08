@@ -415,6 +415,73 @@ for style in styles:
     print(f"{style.name}: {verse.text}")
 ```
 
+## Contextual Search Hints
+
+All non-vector search methods accept two optional hint parameters that narrow the initial search window before expanding to the full Quran.
+
+### `surah_hint` — Search a Specific Surah First
+
+```python
+import quran_ayah_lookup as qal
+
+# Search Surah 55 first; if no result, expands to ±1, then ±3 surahs, then full Quran
+results = qal.search_text("الرحمن", surah_hint=55)
+results = qal.fuzzy_search("الرحمن", surah_hint=55)
+results = qal.search_sliding_window("الرحمن علم القران", surah_hint=55)
+
+# Works with smart_search too — hint is propagated to all cascade levels
+result = qal.smart_search("علم القران", surah_hint=55)
+```
+
+If nothing meets the threshold inside the expanded window, the search falls back to the entire Quran. Fallback results are re-sorted so verses closest to the hinted surah appear first.
+
+### `start_after` — Search After a Given Position
+
+```python
+# Only return matches that appear after Surah 2, Ayah 255
+results = qal.search_text("الله", start_after=(2, 255))
+results = qal.fuzzy_search("الله لا اله الا هو", start_after=(2, 255))
+results = qal.search_sliding_window("الله", start_after=(54, 55))
+
+# Also works with smart_search
+result = qal.smart_search("الكتاب", start_after=(2, 0))
+```
+
+If no match exists after the anchor, it silently falls back to the full Quran and prioritises later verses.
+
+### Combining Both Hints
+
+```python
+# Search Surah 55 first AND only after 54:55
+results = qal.fuzzy_search("الرحمن", surah_hint=55, start_after=(54, 55))
+```
+
+### CLI Usage
+
+```bash
+# --surah-hint on any search command
+qal search "الرحمن" --surah-hint 55
+qal fuzzy "الرحمن" --surah-hint 55
+qal sliding-window "الرحمن علم القران" --surah-hint 55
+qal smart-search "علم القران" --surah-hint 55
+
+# --start-after accepts SURAH:AYAH format
+qal search "الله" --start-after 2:255
+qal fuzzy "الله" --start-after 2:255
+```
+
+### REST API Usage
+
+```bash
+# surah_hint query parameter
+curl "http://127.0.0.1:8000/fuzzy-search?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86&surah_hint=55"
+
+# start_after_surah + start_after_ayah (both required together)
+curl "http://127.0.0.1:8000/search?query=%D8%A7%D9%84%D9%84%D9%87&start_after_surah=2&start_after_ayah=255"
+```
+
+---
+
 ## Text Normalization
 
 ### Arabic Text Processing

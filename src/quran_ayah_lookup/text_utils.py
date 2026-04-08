@@ -2,7 +2,7 @@
 Text processing utilities for Arabic Quran text normalization.
 """
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Tuple
 
 if TYPE_CHECKING:
     from .models import QuranDatabase, MultiAyahMatch
@@ -91,6 +91,21 @@ QURAN_SPECIAL_MARKS = [
 
 # Combine all characters to remove
 ALL_DIACRITICS_AND_MARKS = ARABIC_DIACRITICS + QURAN_SPECIAL_MARKS
+
+
+def _get_surah_range_verses(db: 'QuranDatabase', surah_from: int, surah_to: int) -> list:
+    """Return all verses from surahs in [surah_from, surah_to] inclusive."""
+    verses = []
+    for surah_num in range(surah_from, surah_to + 1):
+        if surah_num in db.surahs:
+            verses.extend(db.surahs[surah_num].get_all_verses())
+    return verses
+
+
+def _get_verses_after_position(db: 'QuranDatabase', ref_surah: int, ref_ayah: int) -> list:
+    """Return all verses that appear after (ref_surah, ref_ayah) in Quran order."""
+    ref = (ref_surah, ref_ayah)
+    return [v for v in db.get_all_verses() if (v.surah_number, v.ayah_number) > ref]
 
 
 def normalize_arabic_text(text: str) -> str:
@@ -517,7 +532,9 @@ def refine_sliding_window_result(query: str, best_match: 'MultiAyahMatch', thres
 
 def sliding_window_multi_ayah_search(query: str, verses: list = None, threshold: float = 80.0,
                                      normalized: bool = True, max_results: int = None,
-                                     db: 'QuranDatabase' = None) -> list:
+                                     db: 'QuranDatabase' = None,
+                                     surah_hint: Optional[int] = None,
+                                     start_after: Optional[Tuple[int, int]] = None) -> list:
     """
     Perform sliding window search across multiple ayahs using vectorized fuzzy matching.
     
@@ -574,7 +591,63 @@ def sliding_window_multi_ayah_search(query: str, verses: list = None, threshold:
 
     if not query.strip():
         return []
-    
+
+    # --- surah_hint expansion logic ---
+    if surah_hint is not None:
+        if db is None:
+            from .loader import get_quran_database
+            db = get_quran_database()
+        _hint = max(1, min(114, surah_hint))
+        for radius in [0, 1, 3]:
+            s_from = max(1, _hint - radius)
+            s_to = min(114, _hint + radius)
+            subset = _get_surah_range_verses(db, s_from, s_to)
+            if start_after is not None:
+                ref = start_after
+                subset = [v for v in subset if (v.surah_number, v.ayah_number) > ref]
+            if not subset:
+                continue
+            results = sliding_window_multi_ayah_search(
+                query, verses=subset, threshold=threshold,
+                normalized=normalized, max_results=max_results, db=db
+            )
+            if results:
+                return results
+        # Fallback: full corpus, re-sort by surah proximity
+        all_results = sliding_window_multi_ayah_search(
+            query, verses=None, threshold=threshold,
+            normalized=normalized, max_results=max_results, db=db
+        )
+        if all_results:
+            return sorted(all_results, key=lambda m: (-m.similarity, abs(m.start_surah - _hint)))
+        return []
+
+    # --- start_after filtering ---
+    if start_after is not None:
+        if db is None:
+            from .loader import get_quran_database
+            db = get_quran_database()
+        ref_surah, ref_ayah = start_after
+        after_verses = _get_verses_after_position(db, ref_surah, ref_ayah)
+        if after_verses:
+            results = sliding_window_multi_ayah_search(
+                query, verses=after_verses, threshold=threshold,
+                normalized=normalized, max_results=max_results, db=db
+            )
+            if results:
+                return results
+        # Fallback: full corpus, results after anchor ranked first
+        all_results = sliding_window_multi_ayah_search(
+            query, verses=None, threshold=threshold,
+            normalized=normalized, max_results=max_results, db=db
+        )
+        if all_results:
+            return sorted(all_results, key=lambda m: (
+                0 if (m.start_surah, m.start_ayah) > (ref_surah, ref_ayah) else 1,
+                -m.similarity
+            ))
+        return []
+
     # Track if we're searching the entire database (no verses specified)
     search_entire_db = verses is None
     

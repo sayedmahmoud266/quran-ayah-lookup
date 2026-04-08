@@ -430,7 +430,10 @@ async def get_surah_verses_endpoint(
 async def search_text_endpoint(
     query: str = Query(..., min_length=1, description="Arabic text to search for"),
     normalized: bool = Query(True, description="Search in normalized text (without diacritics)"),
-    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return")
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return"),
+    surah_hint: Optional[int] = Query(None, ge=1, le=114, description="Search in this surah first, expanding ±1, ±3, then full Quran"),
+    start_after_surah: Optional[int] = Query(None, ge=1, le=114, description="Start search after this surah (must be paired with start_after_ayah)"),
+    start_after_ayah: Optional[int] = Query(None, ge=0, description="Start search after this ayah (must be paired with start_after_surah)"),
 ):
     """
     Search for verses containing the query text (exact substring matching).
@@ -438,11 +441,19 @@ async def search_text_endpoint(
     - **query**: Arabic text to search for (required)
     - **normalized**: Whether to search in normalized text without diacritics (default: true)
     - **limit**: Maximum number of results to return (optional)
-    
+    - **surah_hint**: Search in this surah first, expanding ±1, ±3, then full Quran (optional)
+    - **start_after_surah** / **start_after_ayah**: Start search after this position (optional, must be paired)
+
     Returns a list of verses containing the query text.
     """
+    if (start_after_surah is None) != (start_after_ayah is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_after_surah and start_after_ayah must both be provided or both omitted.",
+        )
+    start_after = (start_after_surah, start_after_ayah) if start_after_surah is not None else None
     try:
-        results = search_text(query, normalized=normalized)
+        results = search_text(query, normalized=normalized, surah_hint=surah_hint, start_after=start_after)
         if limit:
             results = results[:limit]
         return [verse_to_response(verse) for verse in results]
@@ -465,7 +476,10 @@ async def fuzzy_search_endpoint(
     query: str = Query(..., min_length=1, description="Arabic text to search for"),
     threshold: float = Query(0.7, ge=0.0, le=1.0, description="Minimum similarity score (0.0-1.0)"),
     normalized: bool = Query(True, description="Search in normalized text (without diacritics)"),
-    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return")
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return"),
+    surah_hint: Optional[int] = Query(None, ge=1, le=114, description="Search in this surah first, expanding ±1, ±3, then full Quran"),
+    start_after_surah: Optional[int] = Query(None, ge=1, le=114, description="Start search after this surah (must be paired with start_after_ayah)"),
+    start_after_ayah: Optional[int] = Query(None, ge=0, description="Start search after this ayah (must be paired with start_after_surah)"),
 ):
     """
     Perform fuzzy search with partial text matching across all verses.
@@ -474,19 +488,29 @@ async def fuzzy_search_endpoint(
     - **threshold**: Minimum similarity score between 0.0 and 1.0 (default: 0.7)
     - **normalized**: Whether to search in normalized text without diacritics (default: true)
     - **limit**: Maximum number of results to return (optional)
-    
+    - **surah_hint**: Search in this surah first, expanding ±1, ±3, then full Quran (optional)
+    - **start_after_surah** / **start_after_ayah**: Start search after this position (optional, must be paired)
+
     Returns a list of fuzzy search results sorted by similarity score, including:
     - The matched verse
     - Word-level position of the match
     - Similarity score
     - Matched text segment
     """
+    if (start_after_surah is None) != (start_after_ayah is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_after_surah and start_after_ayah must both be provided or both omitted.",
+        )
+    start_after = (start_after_surah, start_after_ayah) if start_after_surah is not None else None
     try:
         results = fuzzy_search(
             query,
             threshold=threshold,
             normalized=normalized,
-            max_results=limit
+            max_results=limit,
+            surah_hint=surah_hint,
+            start_after=start_after,
         )
         return [fuzzy_result_to_response(result) for result in results]
     except Exception as e:
@@ -508,7 +532,10 @@ async def sliding_window_search_endpoint(
     query: str = Query(..., min_length=1, description="Arabic text to search for (can span multiple ayahs)"),
     threshold: float = Query(80.0, ge=0.0, le=100.0, description="Minimum similarity score (0.0-100.0)"),
     normalized: bool = Query(True, description="Search in normalized text (without diacritics)"),
-    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return")
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return"),
+    surah_hint: Optional[int] = Query(None, ge=1, le=114, description="Search in this surah first, expanding ±1, ±3, then full Quran"),
+    start_after_surah: Optional[int] = Query(None, ge=1, le=114, description="Start search after this surah (must be paired with start_after_ayah)"),
+    start_after_ayah: Optional[int] = Query(None, ge=0, description="Start search after this ayah (must be paired with start_after_surah)"),
 ):
     """
     Search for text that may span multiple ayahs using a sliding window approach.
@@ -520,24 +547,34 @@ async def sliding_window_search_endpoint(
     - **threshold**: Minimum similarity score between 0.0 and 100.0 (default: 80.0)
     - **normalized**: Whether to search in normalized text without diacritics (default: true)
     - **limit**: Maximum number of results to return (optional)
-    
+    - **surah_hint**: Search in this surah first, expanding ±1, ±3, then full Quran (optional)
+    - **start_after_surah** / **start_after_ayah**: Start search after this position (optional, must be paired)
+
     Returns a list of multi-ayah matches sorted by similarity score, including:
     - All verses involved in the match
     - Exact word positions within the first and last ayah
     - Similarity score (0.0-100.0)
     - Matched text segment
     - Human-readable reference (e.g., "55:1-4" or "93:6 - 94:1")
-    
+
     **Examples:**
     - Query: "الرحمن علم القران خلق الانسان علمه البيان" → Returns Surah Ar-Rahman (55:1-4)
     - Query: "بسم الله الرحمن الرحيم الم ذلك الكتاب" → Returns Surah Al-Baqarah (2:1-2)
     """
+    if (start_after_surah is None) != (start_after_ayah is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_after_surah and start_after_ayah must both be provided or both omitted.",
+        )
+    start_after = (start_after_surah, start_after_ayah) if start_after_surah is not None else None
     try:
         results = search_sliding_window(
             query,
             threshold=threshold,
             normalized=normalized,
-            max_results=limit
+            max_results=limit,
+            surah_hint=surah_hint,
+            start_after=start_after,
         )
         return [multi_ayah_match_to_response(match) for match in results]
     except Exception as e:
@@ -560,7 +597,10 @@ async def smart_search_endpoint(
     fuzzy_threshold: float = Query(0.7, ge=0.0, le=1.0, description="Minimum similarity score for fuzzy search (0.0-1.0)"),
     sliding_threshold: float = Query(80.0, ge=0.0, le=100.0, description="Minimum similarity score for sliding window (0.0-100.0)"),
     normalized: bool = Query(True, description="Search in normalized text (without diacritics)"),
-    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return")
+    limit: Optional[int] = Query(None, ge=1, description="Maximum number of results to return"),
+    surah_hint: Optional[int] = Query(None, ge=1, le=114, description="Search in this surah first, expanding ±1, ±3, then full Quran"),
+    start_after_surah: Optional[int] = Query(None, ge=1, le=114, description="Start search after this surah (must be paired with start_after_ayah)"),
+    start_after_ayah: Optional[int] = Query(None, ge=0, description="Start search after this ayah (must be paired with start_after_surah)"),
 ):
     """
     Intelligent search that automatically tries multiple search methods.
@@ -578,27 +618,36 @@ async def smart_search_endpoint(
     - **sliding_threshold**: Minimum similarity score for sliding window (0.0-100.0, default: 80.0)
     - **normalized**: Whether to search in normalized text without diacritics (default: true)
     - **limit**: Maximum number of results to return (optional)
-    
+    - **surah_hint**: Search in this surah first, expanding ±1, ±3, then full Quran (optional)
+    - **start_after_surah** / **start_after_ayah**: Start search after this position (optional, must be paired)
+
     Returns a response indicating which method was used and the results:
     - `method`: The search method that succeeded ('exact', 'fuzzy', 'sliding_window', or 'none')
     - `count`: Number of results found
     - Results in the appropriate field based on the method used
-    
+
     **Examples:**
     - Query: "الرحمن الرحيم" → Likely uses exact search (appears many times)
     - Query: "الرحمن علم القران" → May use fuzzy or sliding window search
     - Query: "الرحمن علم القران خلق الانسان" → Likely uses sliding window search
     """
+    if (start_after_surah is None) != (start_after_ayah is None):
+        raise HTTPException(
+            status_code=400,
+            detail="start_after_surah and start_after_ayah must both be provided or both omitted.",
+        )
+    start_after = (start_after_surah, start_after_ayah) if start_after_surah is not None else None
     try:
         result = smart_search(
             query,
             threshold=fuzzy_threshold,
             sliding_threshold=sliding_threshold,
             normalized=normalized,
-            max_results=limit
+            max_results=limit,
+            surah_hint=surah_hint,
+            start_after=start_after,
         )
-        
-        # Build response based on method used
+
         response = SmartSearchResponse(
             method=result['method'],
             count=result['count'],
@@ -606,14 +655,14 @@ async def smart_search_endpoint(
             fuzzy_results=None,
             sliding_window_results=None
         )
-        
+
         if result['method'] == 'exact':
             response.exact_results = [verse_to_response(verse) for verse in result['results']]
         elif result['method'] == 'fuzzy':
             response.fuzzy_results = [fuzzy_result_to_response(r) for r in result['results']]
         elif result['method'] == 'sliding_window':
             response.sliding_window_results = [multi_ayah_match_to_response(m) for m in result['results']]
-        
+
         return response
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -148,37 +148,55 @@ def get_surah_cmd(ctx, surah_number: int, count: bool, list: bool):
 @click.argument("query")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
+@click.option("--surah-hint", type=int, default=None, metavar="SURAH",
+              help="Search in this surah first, expanding ±1, ±3, then full Quran")
+@click.option("--start-after", "start_after_str", type=str, default=None, metavar="SURAH:AYAH",
+              help="Start search after this position (e.g. '2:254'); fallback to full Quran")
 @style_option
 @click.pass_context
-def search_text_cmd(ctx,query: str, normalized: bool, limit: Optional[int]):
+def search_text_cmd(ctx, query: str, normalized: bool, limit: Optional[int],
+                    surah_hint: Optional[int], start_after_str: Optional[str]):
     """
     Search for verses containing the query text (exact substring matching).
-    
+
     Examples:
         qal search "الله"
         qal search "بسم الله" --limit 5
         qal search "الرحمن" --original
+        qal search "الله" --surah-hint 2
+        qal search "الله" --start-after 2:255
     """
+    start_after = None
+    if start_after_str:
+        try:
+            parts = start_after_str.split(":")
+            if len(parts) != 2:
+                raise ValueError
+            start_after = (int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            click.echo(f"Error: --start-after must be in 'surah:ayah' format (e.g. '2:254'), "
+                       f"got '{start_after_str}'", err=True)
+            sys.exit(1)
     try:
-        results = search_text(query, normalized=normalized)
-        
+        results = search_text(query, normalized=normalized, surah_hint=surah_hint, start_after=start_after)
+
         if not results:
             click.echo(f"No verses found containing '{query}'")
             return
-        
+
         total = len(results)
         display_count = min(limit, total) if limit else total
-        
+
         click.echo(f"Found {total} verse(s) containing '{query}'")
         click.echo("=" * 60)
-        
+
         for i, verse in enumerate(results[:display_count], 1):
             click.echo(f"\n[{i}/{display_count}] ", nl=False)
             display_verse(verse, compact=True)
-        
+
         if limit and total > limit:
             click.echo(f"\n... and {total - limit} more results")
-            
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -189,37 +207,56 @@ def search_text_cmd(ctx,query: str, normalized: bool, limit: Optional[int]):
 @click.option("--threshold", "-t", type=float, default=0.7, help="Minimum similarity score (0.0-1.0)")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
+@click.option("--surah-hint", type=int, default=None, metavar="SURAH",
+              help="Search in this surah first, expanding ±1, ±3, then full Quran")
+@click.option("--start-after", "start_after_str", type=str, default=None, metavar="SURAH:AYAH",
+              help="Start search after this position (e.g. '2:254'); fallback to full Quran")
 @style_option
 @click.pass_context
-def fuzzy_search_cmd(ctx,query: str, threshold: float, normalized: bool, limit: Optional[int]):
+def fuzzy_search_cmd(ctx, query: str, threshold: float, normalized: bool, limit: Optional[int],
+                     surah_hint: Optional[int], start_after_str: Optional[str]):
     """
     Perform fuzzy search with partial text matching.
-    
+
     Examples:
         qal fuzzy "كذلك يجتبيك ربك ويعلمك"
         qal fuzzy "فبأي الاء ربكما تكذبان" --threshold 0.8
         qal fuzzy "بسم الله" --limit 10
+        qal fuzzy "الله" --surah-hint 2
+        qal fuzzy "الله" --start-after 2:255
     """
+    start_after = None
+    if start_after_str:
+        try:
+            parts = start_after_str.split(":")
+            if len(parts) != 2:
+                raise ValueError
+            start_after = (int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            click.echo(f"Error: --start-after must be in 'surah:ayah' format (e.g. '2:254'), "
+                       f"got '{start_after_str}'", err=True)
+            sys.exit(1)
     try:
         if threshold < 0.0 or threshold > 1.0:
             click.echo("Error: Threshold must be between 0.0 and 1.0", err=True)
             sys.exit(1)
-        
-        results = fuzzy_search(query, threshold=threshold, normalized=normalized, max_results=limit)
-        
+
+        results = fuzzy_search(query, threshold=threshold, normalized=normalized,
+                               max_results=limit, surah_hint=surah_hint, start_after=start_after)
+
         if not results:
             click.echo(f"No verses found matching '{query}' with threshold {threshold}")
             return
-        
+
         total = len(results)
         click.echo(f"Found {total} fuzzy match(es) for '{query}' (threshold: {threshold})")
         click.echo("=" * 60)
-        
+
         for i, result in enumerate(results, 1):
             click.echo(f"\n[{i}/{total}] Similarity: {result.similarity:.3f} | Words: {result.start_word}-{result.end_word}")
             click.echo(f"Matched text: {result.matched_text}")
             display_verse(result.verse, compact=True)
-            
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -259,44 +296,59 @@ def get_surah_verses_cmd(ctx, surah_number: int):
 @click.option("--threshold", "-t", type=float, default=80.0, help="Minimum similarity score (0.0-100.0)")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
+@click.option("--surah-hint", type=int, default=None, metavar="SURAH",
+              help="Search in this surah first, expanding ±1, ±3, then full Quran")
+@click.option("--start-after", "start_after_str", type=str, default=None, metavar="SURAH:AYAH",
+              help="Start search after this position (e.g. '2:254'); fallback to full Quran")
 @style_option
 @click.pass_context
-def sliding_window_search_cmd(ctx, query: str, threshold: float, normalized: bool, limit: Optional[int]):
+def sliding_window_search_cmd(ctx, query: str, threshold: float, normalized: bool, limit: Optional[int],
+                               surah_hint: Optional[int], start_after_str: Optional[str]):
     """
     Search for text that may span multiple ayahs using a sliding window approach.
-    
-    This command is useful for finding longer passages or quotes that cross ayah
-    or even surah boundaries. It uses vectorized fuzzy matching for efficient searching.
-    
+
     Examples:
         qal sliding-window "الرحمن علم القران خلق الانسان علمه البيان"
         qal sliding-window "بسم الله الرحمن الرحيم الم ذلك الكتاب" --threshold 85
         qal sliding-window "فبأي الاء ربكما تكذبان" --limit 5
+        qal sliding-window "الله" --surah-hint 55
+        qal sliding-window "الله" --start-after 54:55
     """
+    start_after = None
+    if start_after_str:
+        try:
+            parts = start_after_str.split(":")
+            if len(parts) != 2:
+                raise ValueError
+            start_after = (int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            click.echo(f"Error: --start-after must be in 'surah:ayah' format (e.g. '2:254'), "
+                       f"got '{start_after_str}'", err=True)
+            sys.exit(1)
     try:
         if threshold < 0.0 or threshold > 100.0:
             click.echo("Error: Threshold must be between 0.0 and 100.0", err=True)
             sys.exit(1)
-        
-        results = search_sliding_window(query, threshold=threshold, normalized=normalized, max_results=limit)
-        
+
+        results = search_sliding_window(query, threshold=threshold, normalized=normalized,
+                                        max_results=limit, surah_hint=surah_hint, start_after=start_after)
+
         if not results:
             click.echo(f"No matches found for '{query}' with threshold {threshold}")
             return
-        
+
         total = len(results)
         click.echo(f"Found {total} match(es) for '{query}' (threshold: {threshold})")
         click.echo("=" * 60)
-        
+
         for i, match in enumerate(results, 1):
             click.echo(f"\n[{i}/{total}] Similarity: {match.similarity:.1f} | Reference: {match.get_reference()}")
             click.echo(f"Matched text: {match.matched_text}")
             click.echo(f"Verses involved: {len(match.verses)}")
-            
-            # Display each verse in the match
+
             for verse in match.verses:
                 click.echo(f"  - Surah {verse.surah_number}:{verse.ayah_number}")
-            
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -308,70 +360,80 @@ def sliding_window_search_cmd(ctx, query: str, threshold: float, normalized: boo
 @click.option("--sliding-threshold", "-s", type=float, default=80.0, help="Sliding window threshold (0.0-100.0)")
 @click.option("--normalized/--original", default=True, help="Search in normalized or original text")
 @click.option("--limit", "-l", type=int, help="Limit number of results")
+@click.option("--surah-hint", type=int, default=None, metavar="SURAH",
+              help="Search in this surah first, expanding ±1, ±3, then full Quran")
+@click.option("--start-after", "start_after_str", type=str, default=None, metavar="SURAH:AYAH",
+              help="Start search after this position (e.g. '2:254'); fallback to full Quran")
 @style_option
 @click.pass_context
-def smart_search_cmd(ctx, query: str, fuzzy_threshold: float, sliding_threshold: float, 
-                     normalized: bool, limit: Optional[int]):
+def smart_search_cmd(ctx, query: str, fuzzy_threshold: float, sliding_threshold: float,
+                     normalized: bool, limit: Optional[int],
+                     surah_hint: Optional[int], start_after_str: Optional[str]):
     """
     Intelligent search that automatically tries multiple search methods.
-    
-    This command tries different search methods in order of precision:
-    1. Exact text search (fastest, most precise)
-    2. Fuzzy search (moderate speed, handles variations)
-    3. Sliding window search (slower, handles multi-ayah matches)
-    
-    The first method that returns results will be used, making this the most
-    convenient search command for general use.
-    
+
     Examples:
         qal smart-search "الرحمن الرحيم"
         qal smart-search "الرحمن علم القران خلق الانسان" --limit 5
         qal smart-search "فبأي الاء" --fuzzy-threshold 0.8
+        qal smart-search "الله" --surah-hint 2
+        qal smart-search "الله" --start-after 2:255
     """
+    start_after = None
+    if start_after_str:
+        try:
+            parts = start_after_str.split(":")
+            if len(parts) != 2:
+                raise ValueError
+            start_after = (int(parts[0]), int(parts[1]))
+        except (ValueError, IndexError):
+            click.echo(f"Error: --start-after must be in 'surah:ayah' format (e.g. '2:254'), "
+                       f"got '{start_after_str}'", err=True)
+            sys.exit(1)
     try:
         if fuzzy_threshold < 0.0 or fuzzy_threshold > 1.0:
             click.echo("Error: Fuzzy threshold must be between 0.0 and 1.0", err=True)
             sys.exit(1)
-        
+
         if sliding_threshold < 0.0 or sliding_threshold > 100.0:
             click.echo("Error: Sliding threshold must be between 0.0 and 100.0", err=True)
             sys.exit(1)
-        
+
         result = smart_search(
-            query, 
+            query,
             threshold=fuzzy_threshold,
             sliding_threshold=sliding_threshold,
-            normalized=normalized, 
-            max_results=limit
+            normalized=normalized,
+            max_results=limit,
+            surah_hint=surah_hint,
+            start_after=start_after,
         )
-        
+
         if result['count'] == 0:
             click.echo(f"No results found for '{query}' using any search method")
             return
-        
-        # Display header with method used
+
         method_names = {
             'exact': 'Exact Text Search',
             'fuzzy': 'Fuzzy Search',
             'sliding_window': 'Sliding Window Search'
         }
         method_name = method_names.get(result['method'], result['method'])
-        
+
         click.echo(f"Found {result['count']} result(s) using {method_name}")
         click.echo("=" * 60)
-        
-        # Display results based on method type
+
         if result['method'] == 'exact':
             for i, verse in enumerate(result['results'], 1):
                 click.echo(f"\n[{i}/{result['count']}] ", nl=False)
                 display_verse(verse, compact=True)
-                
+
         elif result['method'] == 'fuzzy':
             for i, fuzzy_result in enumerate(result['results'], 1):
                 click.echo(f"\n[{i}/{result['count']}] Similarity: {fuzzy_result.similarity:.3f} | Words: {fuzzy_result.start_word}-{fuzzy_result.end_word}")
                 click.echo(f"Matched text: {fuzzy_result.matched_text}")
                 display_verse(fuzzy_result.verse, compact=True)
-                
+
         elif result['method'] == 'sliding_window':
             for i, match in enumerate(result['results'], 1):
                 click.echo(f"\n[{i}/{result['count']}] Similarity: {match.similarity:.1f} | Reference: {match.get_reference()}")

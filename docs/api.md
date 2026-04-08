@@ -62,21 +62,29 @@ verse = surah[35]         # O(1) access to verse 35
 
 **Raises:** `ValueError` if surah not found
 
-### search_text(query: str, normalized: bool = True) → List[QuranVerse]
+### search_text(query: str, normalized: bool = True, surah_hint: int = None, start_after: tuple = None) → List[QuranVerse]
 
 Search for verses containing the query text (exact substring matching).
 
 ```python
 results = qal.search_text("الله", normalized=True)
+
+# Search in Surah 2 first, expanding to nearby surahs then full Quran
+results = qal.search_text("الله", surah_hint=2)
+
+# Only search verses that come after 2:255
+results = qal.search_text("الله", start_after=(2, 255))
 ```
 
 **Parameters:**
 - `query` (str): Arabic text to search for
 - `normalized` (bool): Search in normalized text (default: True)
+- `surah_hint` (int, optional): Search in this surah first; expands ±1, ±3, then full Quran. Fallback results sorted by proximity.
+- `start_after` (tuple, optional): `(surah, ayah)` position; searches only verses after this point, with full-Quran fallback.
 
 **Returns:** List of matching `QuranVerse` objects
 
-### fuzzy_search(query: str, threshold: float = 0.7, normalized: bool = True, max_results: int = None) → List[FuzzySearchResult]
+### fuzzy_search(query: str, threshold: float = 0.7, normalized: bool = True, max_results: int = None, surah_hint: int = None, start_after: tuple = None) → List[FuzzySearchResult]
 
 Perform fuzzy search with partial text matching across all verses. This allows finding verses that contain similar text even if not exact matches.
 
@@ -90,6 +98,12 @@ results = qal.fuzzy_search("فبأي الاء ربكما تكذبان")
 # Control similarity threshold
 high_precision = qal.fuzzy_search("بسم الله", threshold=0.95)
 more_results = qal.fuzzy_search("بسم الله", threshold=0.7)
+
+# Search in Surah 55 first
+results = qal.fuzzy_search("الرحمن", surah_hint=55)
+
+# Only after position 2:255
+results = qal.fuzzy_search("الله", start_after=(2, 255))
 ```
 
 **Parameters:**
@@ -97,6 +111,8 @@ more_results = qal.fuzzy_search("بسم الله", threshold=0.7)
 - `threshold` (float): Minimum similarity score (0.0-1.0, default: 0.7)
 - `normalized` (bool): Search in normalized text (default: True)
 - `max_results` (int, optional): Maximum number of results to return
+- `surah_hint` (int, optional): Search in this surah first; expands ±1, ±3, then full Quran. Fallback results sorted by proximity.
+- `start_after` (tuple, optional): `(surah, ayah)` position; searches only verses after this point, with full-Quran fallback.
 
 **Returns:** List of `FuzzySearchResult` objects sorted by similarity score
 
@@ -107,7 +123,7 @@ more_results = qal.fuzzy_search("بسم الله", threshold=0.7)
 - **Configurable precision**: Adjust threshold for stricter or looser matching
 - **Similarity scoring**: Results ranked by relevance (0.0-1.0)
 
-### search_sliding_window(query: str, threshold: float = 80.0, normalized: bool = True, max_results: int = None) → List[MultiAyahMatch]
+### search_sliding_window(query: str, threshold: float = 80.0, normalized: bool = True, max_results: int = None, surah_hint: int = None, start_after: tuple = None) → List[MultiAyahMatch]
 
 Search for text that spans multiple consecutive ayahs using a sliding window algorithm with vectorized fuzzy matching.
 
@@ -122,6 +138,12 @@ results = qal.search_sliding_window("بسم الله الرحمن الرحيم �
 # Adjust precision
 high_precision = qal.search_sliding_window(query, threshold=90.0)
 more_matches = qal.search_sliding_window(query, threshold=75.0)
+
+# Search in Surah 55 first
+results = qal.search_sliding_window(query, surah_hint=55)
+
+# Only after position 54:55
+results = qal.search_sliding_window(query, start_after=(54, 55))
 ```
 
 **Parameters:**
@@ -129,6 +151,8 @@ more_matches = qal.search_sliding_window(query, threshold=75.0)
 - `threshold` (float): Minimum similarity score (0.0-100.0, default: 80.0)
 - `normalized` (bool): Search in normalized text (default: True)
 - `max_results` (int, optional): Maximum number of results to return
+- `surah_hint` (int, optional): Search in this surah first; expands ±1, ±3, then full Quran. Fallback results sorted by proximity.
+- `start_after` (tuple, optional): `(surah, ayah)` position; searches only verses after this point, with full-Quran fallback.
 
 **Returns:** List of `MultiAyahMatch` objects sorted by similarity score (highest first)
 
@@ -140,7 +164,7 @@ more_matches = qal.search_sliding_window(query, threshold=75.0)
 - **Optimized for long queries**: Uses stride for queries >30 words
 - **Word-level positions**: Tracks exact word ranges across verses
 
-### smart_search(query: str, threshold: float = 0.7, sliding_threshold: float = 80.0, normalized: bool = True, max_results: int = None) → dict
+### smart_search(query: str, threshold: float = 0.7, sliding_threshold: float = 80.0, normalized: bool = True, max_results: int = None, surah_hint: int = None, start_after: tuple = None) → dict
 
 Intelligently search using cascading methods: exact text search → fuzzy search → sliding window search.
 
@@ -161,6 +185,10 @@ result = qal.smart_search(
     max_results=10
 )
 
+# With contextual hints — applied to all three cascade levels
+result = qal.smart_search("علم القران", surah_hint=55)
+result = qal.smart_search("الله", start_after=(2, 255))
+
 # Access results based on method used
 if result['method'] == 'exact':
     for verse in result['results']:
@@ -179,6 +207,8 @@ elif result['method'] == 'sliding_window':
 - `sliding_threshold` (float): Sliding window threshold (0.0-100.0, default: 80.0)
 - `normalized` (bool): Search in normalized text (default: True)
 - `max_results` (int, optional): Maximum number of results to return
+- `surah_hint` (int, optional): Search in this surah first; expands ±1, ±3, then full Quran. Propagated to all three cascade levels.
+- `start_after` (tuple, optional): `(surah, ayah)` position. Propagated to all three cascade levels.
 
 **Returns:** Dictionary with:
 - `method` (str): Which search method succeeded ('exact', 'fuzzy', 'sliding_window', or 'none')
@@ -723,10 +753,19 @@ Query Parameters:
 - `query` (string, required): Arabic text to search for
 - `normalized` (boolean, optional): Search in normalized text (default: true)
 - `limit` (integer, optional): Maximum number of results
+- `surah_hint` (integer, optional): Search this surah first, expanding ±1, ±3 then full Quran
+- `start_after_surah` (integer, optional): Start search after this surah number (must be paired with `start_after_ayah`)
+- `start_after_ayah` (integer, optional): Start search after this ayah number (must be paired with `start_after_surah`)
 
 ```bash
 # URL-encoded query
 curl "http://127.0.0.1:8000/search?query=%D8%A7%D9%84%D9%84%D9%87&limit=5"
+
+# With surah hint
+curl "http://127.0.0.1:8000/search?query=%D8%A7%D9%84%D9%84%D9%87&surah_hint=2"
+
+# After a specific position
+curl "http://127.0.0.1:8000/search?query=%D8%A7%D9%84%D9%84%D9%87&start_after_surah=2&start_after_ayah=255"
 ```
 
 Response: Array of verse objects matching the query
@@ -742,9 +781,14 @@ Query Parameters:
 - `threshold` (float, optional): Minimum similarity score 0.0-1.0 (default: 0.7)
 - `normalized` (boolean, optional): Search in normalized text (default: true)
 - `limit` (integer, optional): Maximum number of results
+- `surah_hint` (integer, optional): Search this surah first, expanding ±1, ±3 then full Quran
+- `start_after_surah` / `start_after_ayah` (integer, optional): Start search after this `(surah, ayah)` position
 
 ```bash
 curl "http://127.0.0.1:8000/fuzzy-search?query=%D8%A8%D8%B3%D9%85%20%D8%A7%D9%84%D9%84%D9%87&threshold=0.8"
+
+# With surah hint
+curl "http://127.0.0.1:8000/fuzzy-search?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86&surah_hint=55"
 ```
 
 Response:
@@ -778,10 +822,15 @@ Query Parameters:
 - `threshold` (float, optional): Minimum similarity score 0.0-100.0 (default: 80.0)
 - `normalized` (boolean, optional): Search in normalized text (default: true)
 - `limit` (integer, optional): Maximum number of results
+- `surah_hint` (integer, optional): Search this surah first, expanding ±1, ±3 then full Quran
+- `start_after_surah` / `start_after_ayah` (integer, optional): Start search after this `(surah, ayah)` position
 
 ```bash
 # Search for multi-ayah text
 curl "http://127.0.0.1:8000/sliding-window?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%B9%D9%84%D9%85%20%D8%A7%D9%84%D9%82%D8%B1%D8%A7%D9%86&threshold=80.0&limit=5"
+
+# With surah hint
+curl "http://127.0.0.1:8000/sliding-window?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%B9%D9%84%D9%85%20%D8%A7%D9%84%D9%82%D8%B1%D8%A7%D9%86&surah_hint=55"
 ```
 
 Response:
@@ -835,10 +884,15 @@ Query Parameters:
 - `sliding_threshold` (float, optional): Sliding window threshold 0.0-100.0 (default: 80.0)
 - `normalized` (boolean, optional): Search in normalized text (default: true)
 - `limit` (integer, optional): Maximum number of results
+- `surah_hint` (integer, optional): Search this surah first across all cascade levels
+- `start_after_surah` / `start_after_ayah` (integer, optional): Start search after this position across all cascade levels
 
 ```bash
 # Let smart search choose the best method
 curl "http://127.0.0.1:8000/smart-search?query=%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%A7%D9%84%D8%B1%D8%AD%D9%8A%D9%85"
+
+# With a surah hint
+curl "http://127.0.0.1:8000/smart-search?query=%D8%B9%D9%84%D9%85%20%D8%A7%D9%84%D9%82%D8%B1%D8%A7%D9%86&surah_hint=55"
 ```
 
 Response:
