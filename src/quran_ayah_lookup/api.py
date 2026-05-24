@@ -4,7 +4,7 @@ FastAPI application for Quran Ayah Lookup REST API.
 This module provides a RESTful API interface for all package functionalities
 including verse lookup, text search, fuzzy search, and database statistics.
 """
-from typing import List, Optional
+from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ConfigDict
@@ -63,6 +63,8 @@ class VerseResponse(BaseModel):
     text: str = Field(..., description="Original Arabic text with diacritics")
     text_normalized: str = Field(..., description="Normalized Arabic text without diacritics")
     is_basmalah: bool = Field(..., description="True if this is a Basmala verse")
+    text_imlaai: Optional[str] = Field(None, description="Imlaai script text (for ASR/search)")
+    alt: Dict[str, Optional[str]] = Field(default_factory=dict, description="Alternate corpus texts keyed by style name")
 
 
 class SurahInfoResponse(BaseModel):
@@ -264,7 +266,9 @@ def verse_to_response(verse: QuranVerse) -> VerseResponse:
         ayah_number=verse.ayah_number,
         text=verse.text,
         text_normalized=verse.text_normalized,
-        is_basmalah=verse.is_basmalah
+        is_basmalah=verse.is_basmalah,
+        text_imlaai=verse.text_imlaai,
+        alt=dict(verse.alt),
     )
 
 

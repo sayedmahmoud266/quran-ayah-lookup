@@ -54,6 +54,11 @@ def test_get_verse_success(client):
     assert isinstance(data["is_basmalah"], bool)
     assert len(data["text"]) > 0
     assert len(data["text_normalized"]) > 0
+    # Unified corpus fields
+    assert "text_imlaai" in data
+    assert "alt" in data
+    assert isinstance(data["alt"], dict)
+    assert set(data["alt"].keys()) == {'simple-clean', 'simple-minimal', 'simple-plain', 'simple', 'uthmani'}
 
 
 def test_get_verse_basmala(client):
@@ -66,6 +71,9 @@ def test_get_verse_basmala(client):
     assert data["surah_number"] == 2
     assert data["ayah_number"] == 0
     assert data["is_basmalah"] is True
+    # Basmala should also have alt and imlaai text
+    assert data["text_imlaai"] is not None
+    assert all(v is not None for v in data["alt"].values())
 
 
 def test_get_verse_not_found(client):

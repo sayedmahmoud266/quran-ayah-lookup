@@ -1,45 +1,33 @@
 """
-Unit tests for multi-database cache functionality in loader.py.
+Tests for the unified Quran database introduced by the merged-corpus refactor.
 
-Tests the new behaviour where multiple QuranStyle databases coexist in the
-global cache simultaneously without evicting one another.
+The old multi-database / style-switching behaviour has been replaced by a
+single QuranDatabase whose QuranVerse objects carry all corpus variants inline:
+  - verse.alt  — dict with keys: simple-clean, simple-minimal, simple-plain, simple, uthmani
+  - verse.text_imlaai — dedicated imlaai field
+
+All search/retrieval functions are unchanged and operate on the primary
+(quran-uthmani_all.txt) text as before.
 """
 import pytest
 
 from quran_ayah_lookup.loader import (
     get_quran_database,
     initialize_quran_database,
-    switch_quran_style,
 )
 from quran_ayah_lookup.models import QuranStyle, QuranDatabase, QuranVerse
 import quran_ayah_lookup.loader as loader_module
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Expected alt corpus keys
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="session", autouse=True)
-def preload_simple_style():
-    """
-    Load the SIMPLE style into the cache once per test session.
-
-    UTHMANI_ALL is already loaded at package-import time.  Preloading SIMPLE
-    here avoids a cold-load penalty on every test that uses it.
-    """
-    get_quran_database(QuranStyle.SIMPLE)
-
-
-@pytest.fixture
-def restore_default_style():
-    """Restore _default_style to its pre-test value after each test."""
-    saved = loader_module._default_style
-    yield
-    loader_module._default_style = saved
+EXPECTED_ALT_KEYS = {'simple-clean', 'simple-minimal', 'simple-plain', 'simple', 'uthmani'}
 
 
 # ---------------------------------------------------------------------------
-# get_quran_database() — basic behaviour
+# Single unified database
 # ---------------------------------------------------------------------------
 
 def test_get_quran_database_no_args_returns_database():
@@ -48,224 +36,175 @@ def test_get_quran_database_no_args_returns_database():
     assert isinstance(db, QuranDatabase)
 
 
-def test_get_quran_database_no_args_matches_default_style():
-    """get_quran_database() returns the database for _default_style."""
-    db = get_quran_database()
-    assert db.corpus_style == loader_module._default_style
+def test_get_quran_database_with_style_arg_returns_same_database():
+    """Passing any QuranStyle to get_quran_database returns the unified DB."""
+    db_default = get_quran_database()
+    db_with_style = get_quran_database(QuranStyle.SIMPLE_CLEAN)
+    assert db_default is db_with_style
 
 
-def test_get_quran_database_with_explicit_style_returns_correct_style():
-    """get_quran_database(style) returns a database with that corpus_style."""
-    db = get_quran_database(QuranStyle.UTHMANI_ALL)
-    assert db.corpus_style == QuranStyle.UTHMANI_ALL
+def test_get_quran_database_all_styles_return_same_object():
+    """All QuranStyle values return the identical unified database object."""
+    db_ref = get_quran_database()
+    for style in QuranStyle:
+        assert get_quran_database(style) is db_ref
 
 
-def test_get_quran_database_simple_style_returns_correct_style():
-    """get_quran_database(SIMPLE) returns a database with corpus_style SIMPLE."""
-    db = get_quran_database(QuranStyle.SIMPLE)
-    assert db.corpus_style == QuranStyle.SIMPLE
-
-
-# ---------------------------------------------------------------------------
-# Caching / object identity
-# ---------------------------------------------------------------------------
-
-def test_get_quran_database_same_style_returns_same_object():
-    """Calling get_quran_database(style) twice returns the identical object."""
-    db1 = get_quran_database(QuranStyle.UTHMANI_ALL)
-    db2 = get_quran_database(QuranStyle.UTHMANI_ALL)
-    assert db1 is db2
-
-
-def test_get_quran_database_no_args_returns_same_object():
-    """Calling get_quran_database() twice without args returns the same object."""
+def test_get_quran_database_returns_same_object_on_repeated_calls():
+    """Calling get_quran_database() multiple times returns the same instance."""
     db1 = get_quran_database()
     db2 = get_quran_database()
     assert db1 is db2
 
 
-def test_get_quran_database_simple_style_cached():
-    """get_quran_database(SIMPLE) called twice returns the same object."""
-    db1 = get_quran_database(QuranStyle.SIMPLE)
-    db2 = get_quran_database(QuranStyle.SIMPLE)
+def test_initialize_quran_database_returns_same_cached_object():
+    """initialize_quran_database() returns the already-cached instance."""
+    db1 = initialize_quran_database()
+    db2 = initialize_quran_database()
     assert db1 is db2
 
 
-def test_initialize_quran_database_uses_cache():
-    """initialize_quran_database(style) returns the cached object on repeat calls."""
-    db1 = initialize_quran_database(QuranStyle.UTHMANI_ALL)
-    db2 = initialize_quran_database(QuranStyle.UTHMANI_ALL)
-    assert db1 is db2
+def test_initialize_quran_database_style_arg_ignored():
+    """initialize_quran_database(style) returns the same unified DB."""
+    db_no_arg = initialize_quran_database()
+    db_with_style = initialize_quran_database(QuranStyle.UTHMANI)
+    assert db_no_arg is db_with_style
 
 
 # ---------------------------------------------------------------------------
-# Multiple databases coexist
+# Primary corpus is always UTHMANI_ALL
 # ---------------------------------------------------------------------------
 
-def test_two_styles_are_distinct_objects():
-    """Databases loaded for different styles are distinct objects."""
-    db_uthmani = get_quran_database(QuranStyle.UTHMANI_ALL)
-    db_simple = get_quran_database(QuranStyle.SIMPLE)
-    assert db_uthmani is not db_simple
-
-
-def test_two_styles_report_different_corpus_style():
-    """Each cached database reports its own corpus_style."""
-    db_uthmani = get_quran_database(QuranStyle.UTHMANI_ALL)
-    db_simple = get_quran_database(QuranStyle.SIMPLE)
-    assert db_uthmani.corpus_style != db_simple.corpus_style
-
-
-def test_both_styles_present_in_cache():
-    """After loading two styles, both appear in _quran_databases."""
-    get_quran_database(QuranStyle.UTHMANI_ALL)
-    get_quran_database(QuranStyle.SIMPLE)
-    assert QuranStyle.UTHMANI_ALL in loader_module._quran_databases
-    assert QuranStyle.SIMPLE in loader_module._quran_databases
-
-
-def test_loading_explicit_style_does_not_change_default(restore_default_style):
-    """get_quran_database(other_style) must not alter _default_style."""
-    default_before = loader_module._default_style
-    other = (QuranStyle.SIMPLE
-             if default_before != QuranStyle.SIMPLE
-             else QuranStyle.UTHMANI_ALL)
-    get_quran_database(other)
-    assert loader_module._default_style == default_before
-
-
-# ---------------------------------------------------------------------------
-# switch_quran_style
-# ---------------------------------------------------------------------------
-
-def test_switch_quran_style_returns_database(restore_default_style):
-    """switch_quran_style() returns a QuranDatabase instance."""
-    db = switch_quran_style(QuranStyle.SIMPLE)
-    assert isinstance(db, QuranDatabase)
-
-
-def test_switch_quran_style_returns_correct_corpus_style(restore_default_style):
-    """switch_quran_style(style) returns the database for that style."""
-    db = switch_quran_style(QuranStyle.SIMPLE)
-    assert db.corpus_style == QuranStyle.SIMPLE
-
-
-def test_switch_quran_style_updates_default_style_attribute(restore_default_style):
-    """switch_quran_style updates loader_module._default_style."""
-    switch_quran_style(QuranStyle.SIMPLE)
-    assert loader_module._default_style == QuranStyle.SIMPLE
-
-
-def test_switch_quran_style_makes_get_database_return_new_style(restore_default_style):
-    """After switch_quran_style, get_quran_database() returns the new style."""
-    switch_quran_style(QuranStyle.SIMPLE)
-    db = get_quran_database()
-    assert db.corpus_style == QuranStyle.SIMPLE
-
-
-def test_switch_quran_style_preserves_old_db_in_cache(restore_default_style):
-    """After switching style, the previous default is still accessible by style."""
-    original_default = loader_module._default_style
-    original_db = get_quran_database(original_default)
-
-    other = (QuranStyle.SIMPLE
-             if original_default != QuranStyle.SIMPLE
-             else QuranStyle.UTHMANI_ALL)
-    switch_quran_style(other)
-
-    recovered = get_quran_database(original_default)
-    assert recovered is original_db
-
-
-def test_switch_quran_style_twice_ends_on_last_style(restore_default_style):
-    """Switching style twice leaves the second style as the default."""
-    switch_quran_style(QuranStyle.SIMPLE)
-    switch_quran_style(QuranStyle.UTHMANI_ALL)
+def test_corpus_style_is_uthmani_all():
+    """The unified database always reports corpus_style = UTHMANI_ALL."""
     db = get_quran_database()
     assert db.corpus_style == QuranStyle.UTHMANI_ALL
 
 
-def test_switch_back_to_original_returns_same_cached_object(restore_default_style):
-    """Switching away and back returns the same originally-cached object."""
-    original_default = loader_module._default_style
-    original_db = get_quran_database()
-
-    other = (QuranStyle.SIMPLE
-             if original_default != QuranStyle.SIMPLE
-             else QuranStyle.UTHMANI_ALL)
-    switch_quran_style(other)
-    switch_quran_style(original_default)
-
-    assert get_quran_database() is original_db
-
-
-def test_switch_quran_style_returned_db_same_as_get_quran_database(restore_default_style):
-    """The object returned by switch_quran_style equals get_quran_database(style)."""
-    switched_db = switch_quran_style(QuranStyle.SIMPLE)
-    fetched_db = get_quran_database(QuranStyle.SIMPLE)
-    assert switched_db is fetched_db
+def test_database_has_114_surahs():
+    """Database contains all 114 surahs."""
+    db = get_quran_database()
+    assert db.get_surah_count() == 114
 
 
 # ---------------------------------------------------------------------------
-# initialize_quran_database
+# alt dict on QuranVerse
 # ---------------------------------------------------------------------------
 
-def test_initialize_quran_database_no_args_returns_database():
-    """initialize_quran_database() with no args returns a QuranDatabase."""
-    db = initialize_quran_database()
-    assert isinstance(db, QuranDatabase)
-
-
-def test_initialize_quran_database_with_style_caches_result():
-    """initialize_quran_database(style) stores the result in _quran_databases."""
-    initialize_quran_database(QuranStyle.SIMPLE)
-    assert QuranStyle.SIMPLE in loader_module._quran_databases
-
-
-def test_initialize_quran_database_with_style_returns_correct_corpus_style():
-    """initialize_quran_database(style) returns a db with the right corpus_style."""
-    db = initialize_quran_database(QuranStyle.UTHMANI_ALL)
-    assert db.corpus_style == QuranStyle.UTHMANI_ALL
-
-
-def test_initialize_quran_database_result_same_as_get_quran_database():
-    """initialize_quran_database(style) and get_quran_database(style) return the same object."""
-    db_init = initialize_quran_database(QuranStyle.UTHMANI_ALL)
-    db_get = get_quran_database(QuranStyle.UTHMANI_ALL)
-    assert db_init is db_get
-
-
-# ---------------------------------------------------------------------------
-# Data consistency across databases
-# ---------------------------------------------------------------------------
-
-def test_total_surahs_same_across_two_styles():
-    """Both loaded databases cover all 114 surahs."""
-    db_uthmani = get_quran_database(QuranStyle.UTHMANI_ALL)
-    db_simple = get_quran_database(QuranStyle.SIMPLE)
-    assert db_uthmani.get_surah_count() == db_simple.get_surah_count() == 114
-
-
-def test_verse_count_same_across_two_styles():
-    """Both databases have the same number of non-basmala verses."""
-    db_uthmani = get_quran_database(QuranStyle.UTHMANI_ALL)
-    db_simple = get_quran_database(QuranStyle.SIMPLE)
-    assert (db_uthmani.get_verse_count(include_basmalah=False) ==
-            db_simple.get_verse_count(include_basmalah=False))
-
-
-def test_get_verse_works_on_explicitly_loaded_style_db():
-    """Normal verse operations work on a database loaded by explicit style."""
-    db = get_quran_database(QuranStyle.SIMPLE)
+def test_verse_has_alt_dict():
+    """Every verse has an alt dict."""
+    db = get_quran_database()
     verse = db.get_verse(1, 1)
-    assert isinstance(verse, QuranVerse)
-    assert verse.surah_number == 1
-    assert verse.ayah_number == 1
+    assert hasattr(verse, 'alt')
+    assert isinstance(verse.alt, dict)
 
 
-def test_default_db_and_explicit_db_agree_on_surah_count():
-    """Default db and explicitly-fetched db of same style have the same surah count."""
-    default_style = loader_module._default_style
-    db_default = get_quran_database()
-    db_explicit = get_quran_database(default_style)
-    assert db_default.get_surah_count() == db_explicit.get_surah_count()
+def test_verse_alt_has_expected_keys():
+    """verse.alt contains all five expected corpus keys."""
+    db = get_quran_database()
+    verse = db.get_verse(2, 1)
+    assert set(verse.alt.keys()) == EXPECTED_ALT_KEYS
+
+
+def test_verse_alt_values_populated():
+    """alt values are non-None strings for a regular verse."""
+    db = get_quran_database()
+    verse = db.get_verse(2, 1)
+    for key in EXPECTED_ALT_KEYS:
+        assert verse.alt[key] is not None, f"alt['{key}'] is None for verse 2:1"
+        assert isinstance(verse.alt[key], str)
+        assert len(verse.alt[key]) > 0
+
+
+def test_verse_alt_basmala_populated():
+    """alt values are non-None for Basmala verses (ayah 0)."""
+    db = get_quran_database()
+    basmala = db.get_verse(2, 0)
+    assert basmala.is_basmalah
+    for key in EXPECTED_ALT_KEYS:
+        assert basmala.alt[key] is not None, f"alt['{key}'] is None for Basmala 2:0"
+
+
+def test_verse_alt_at_tawbah_no_basmala():
+    """At-Tawbah (9:1) alt values are populated (no Basmala in this surah)."""
+    db = get_quran_database()
+    verse = db.get_verse(9, 1)
+    assert not verse.is_basmalah
+    for key in EXPECTED_ALT_KEYS:
+        assert verse.alt[key] is not None, f"alt['{key}'] is None for verse 9:1"
+
+
+def test_verse_alt_values_are_arabic_text():
+    """Alt values contain Arabic characters."""
+    db = get_quran_database()
+    verse = db.get_verse(1, 1)
+    for key in EXPECTED_ALT_KEYS:
+        # Arabic Unicode block: U+0600–U+06FF
+        assert any('\u0600' <= ch <= '\u06ff' for ch in (verse.alt[key] or '')), \
+            f"alt['{key}'] doesn't contain Arabic text"
+
+
+def test_verse_alt_simple_clean_differs_from_primary():
+    """simple-clean text is different from the primary uthmani-all text (no diacritics)."""
+    db = get_quran_database()
+    verse = db.get_verse(2, 1)
+    # Primary has full diacritics; simple-clean should not
+    assert verse.alt['simple-clean'] != verse.text
+
+
+# ---------------------------------------------------------------------------
+# text_imlaai field on QuranVerse
+# ---------------------------------------------------------------------------
+
+def test_verse_has_text_imlaai():
+    """Every verse has a text_imlaai attribute."""
+    db = get_quran_database()
+    verse = db.get_verse(1, 1)
+    assert hasattr(verse, 'text_imlaai')
+
+
+def test_verse_text_imlaai_populated():
+    """text_imlaai is a non-None string for a regular verse."""
+    db = get_quran_database()
+    verse = db.get_verse(2, 1)
+    assert verse.text_imlaai is not None
+    assert isinstance(verse.text_imlaai, str)
+    assert len(verse.text_imlaai) > 0
+
+
+def test_verse_text_imlaai_basmala_populated():
+    """text_imlaai is populated for Basmala verses."""
+    db = get_quran_database()
+    basmala = db.get_verse(2, 0)
+    assert basmala.is_basmalah
+    assert basmala.text_imlaai is not None
+
+
+def test_verse_text_imlaai_at_tawbah():
+    """text_imlaai is populated for At-Tawbah ayah 1 (no Basmala)."""
+    db = get_quran_database()
+    verse = db.get_verse(9, 1)
+    assert verse.text_imlaai is not None
+
+
+# ---------------------------------------------------------------------------
+# to_dict includes new fields
+# ---------------------------------------------------------------------------
+
+def test_verse_to_dict_includes_alt_and_imlaai():
+    """QuranVerse.to_dict() includes 'alt' and 'text_imlaai' keys."""
+    db = get_quran_database()
+    verse = db.get_verse(2, 1)
+    d = verse.to_dict()
+    assert 'alt' in d
+    assert 'text_imlaai' in d
+    assert set(d['alt'].keys()) == EXPECTED_ALT_KEYS
+
+
+# ---------------------------------------------------------------------------
+# switch_quran_style is removed
+# ---------------------------------------------------------------------------
+
+def test_switch_quran_style_not_importable():
+    """switch_quran_style no longer exists in the loader module."""
+    assert not hasattr(loader_module, 'switch_quran_style')

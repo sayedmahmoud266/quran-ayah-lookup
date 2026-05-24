@@ -12,6 +12,7 @@ class QuranStyle(Enum):
     SIMPLE_MINIMAL = "simple-minimal.txt"
     SIMPLE_PLAIN = "simple-plain.txt"
     SIMPLE = "simple.txt"
+    SIMPLE_IMLAAI = "simple-imlaai.txt"
     UTHMANI = "uthmani.txt"
 
 
@@ -44,7 +45,15 @@ class QuranVerse:
     text: str
     text_normalized: str
     is_basmalah: bool = False
-    
+    text_imlaai: Optional[str] = None
+    alt: Dict[str, Optional[str]] = field(default_factory=lambda: {
+        'simple-clean':   None,
+        'simple-minimal': None,
+        'simple-plain':   None,
+        'simple':         None,
+        'uthmani':        None,
+    })
+
     def __str__(self) -> str:
         verse_type = "Basmala" if self.is_basmalah else "Ayah"
         return f"{verse_type} {self.surah_number}:{self.ayah_number} - {self.text[:50]}..."
@@ -60,7 +69,9 @@ class QuranVerse:
             'ayah_number': self.ayah_number,
             'text': self.text,
             'text_normalized': self.text_normalized,
-            'is_basmalah': self.is_basmalah
+            'is_basmalah': self.is_basmalah,
+            'text_imlaai': self.text_imlaai,
+            'alt': dict(self.alt),
         }
 
 

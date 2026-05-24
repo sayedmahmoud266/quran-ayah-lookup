@@ -33,31 +33,13 @@ except ImportError:
     _VECTOR_AVAILABLE = False
 
 def style_option(f):
-    """Click option for selecting Quran style/version."""
-    @click.option("--style", "-s", type=click.Choice([style.name for style in QuranStyle]), default=None, help="Quran text style/version to use")
+    """Click option for --style (accepted for backward compatibility; no longer selects a corpus)."""
+    @click.option("--style", "-s", type=click.Choice([style.name for style in QuranStyle]), default=None, help="Ignored — all corpus variants are available in the unified database")
     @click.pass_context
     def wrapper(ctx, style, *args, **kwargs):
         ctx.ensure_object(dict)
-        
-        # 1. Check if style was provided at THIS level
-        if style is not None:
-            ctx.obj['SELECTED_STYLE'] = style
-        
-        # 2. Retrieve the most recent style from context
-        current_style_name = ctx.obj.get('SELECTED_STYLE')
-
-        if current_style_name:
-            selected_style = QuranStyle[current_style_name]
-            default_settings.style = selected_style
-            
-            # 3. Only initialize if it's not already set to this
-            # This prevents the "Group" and "Command" from double-initializing
-            print(f"Initializing Quran database with style: {selected_style.name}")
-            initialize_quran_database(selected_style)
-        
-        # 4. IMPORTANT: If 'f' is a command that expects 'style', 
-        # we must put it back into kwargs or it disappears.
-        # However, since we use @click.pass_context, we can just pass ctx.
+        # Ensure the database is initialized (idempotent)
+        initialize_quran_database()
         return ctx.invoke(f, *args, **kwargs)
     return wrapper
 
@@ -575,7 +557,9 @@ def show_stats(ctx):
         db = get_quran_database()
         click.echo("Quran Database Statistics")
         click.echo("=" * 60)
-        click.echo(f"Quran Style Version: {db.corpus_style.name}, file: {db.corpus_style.value}")
+        click.echo(f"Primary corpus: {db.corpus_style.name} ({db.corpus_style.value})")
+        click.echo(f"Alt corpora: simple-clean, simple-minimal, simple-plain, simple, uthmani")
+        click.echo(f"Imlaai variant: available as text_imlaai on each verse")
         click.echo(f"Total surahs: {len(db.surahs)}")
         click.echo(f"Total verses: {db.total_verses}")
         click.echo(f"Source: Tanzil.net")

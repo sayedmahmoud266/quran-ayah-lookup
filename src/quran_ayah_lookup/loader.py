@@ -22,33 +22,30 @@ class QuranLoader:
     # Surahs that don't have Basmala at the beginning
     SURAHS_WITHOUT_BASMALA = {1, 9}  # Al-Fatihah and At-Tawbah
 
-    style: QuranStyle
-    
-    def __init__(self, _style: QuranStyle = None):
-        """Initialize the loader with specified style and load environment settings."""
+    # Alt corpora to merge into each QuranVerse (key → QuranStyle)
+    ALT_CORPORA: Dict[str, 'QuranStyle'] = {
+        'simple-clean':   QuranStyle.SIMPLE_CLEAN,
+        'simple-minimal': QuranStyle.SIMPLE_MINIMAL,
+        'simple-plain':   QuranStyle.SIMPLE_PLAIN,
+        'simple':         QuranStyle.SIMPLE,
+        'uthmani':        QuranStyle.UTHMANI,
+    }
+    IMLAAI_CORPUS = QuranStyle.SIMPLE_IMLAAI
+
+    def __init__(self):
+        """Initialize the loader. Always uses UTHMANI_ALL as the primary corpus."""
         self._load_env()
-        # An explicit style argument takes precedence over the env-configured default
-        if _style is not None:
-            self.style = _style
-        self.data_file_path = self._get_data_file_path(_style)
+        self.style = QuranStyle.UTHMANI_ALL
+        self.data_file_path = self._get_data_file_path(QuranStyle.UTHMANI_ALL)
 
     def _load_env(self):
-        """Load environment variables for configuration."""
+        """Load environment variables for cache and autoload configuration."""
         load_dotenv()
 
         global default_settings
 
-        # check settings from env variables
-        style_str = os.getenv("QAL_STYLE", default_settings.style.name).upper()
         cache_enabled_str = os.getenv("QAL_CACHE_ENABLED", str(default_settings.cache_enabled)).lower()
         autoload_on_import_str = os.getenv("QAL_AUTOLOAD_ON_IMPORT", str(default_settings.autoload_on_import)).lower()
-
-        try:
-            self.style = QuranStyle[style_str]
-            default_settings.style = self.style
-        except KeyError:
-            print(f"Invalid QAL_STYLE specified. Falling back to default: {default_settings.style.name}")
-            self.style = default_settings.style
 
         try:
             default_settings.cache_enabled = cache_enabled_str in ("1", "true", "yes")
@@ -60,56 +57,132 @@ class QuranLoader:
         except Exception:
             default_settings.autoload_on_import = True
         
-    def _get_data_file_path(self, _style: QuranStyle = None) -> Path:
-        """Get the path to the quran-uthmani_all.txt file."""
-        current_dir = Path(__file__).parent
-        data_file_dir = current_dir / "resources"
-
-        data_file = _style or self.style
-
-        print(f"Using Quran data file: {data_file.value}, style(override): {_style.name if _style else 'None'}, self.style: {self.style.name}")
-        data_file_path = data_file_dir / str(data_file.value)
-        
+    def _get_data_file_path(self, style: QuranStyle) -> Path:
+        """Resolve the resource file path for the given QuranStyle."""
+        data_file_dir = Path(__file__).parent / "resources"
+        data_file_path = data_file_dir / style.value
         if not data_file_path.exists():
             raise FileNotFoundError(
                 f"Quran data file not found at {data_file_path}. "
-                f"Please ensure {data_file.name} exists in the resources directory."
+                f"Please ensure {style.name} exists in the resources directory."
             )
-        
         return data_file_path
-    
+
+    def _load_alt_corpus_lookup(self, style: QuranStyle) -> Dict:
+        """
+        Parse an alternate corpus file into a {(surah, ayah): text} lookup dict.
+
+        Applies the same Basmala-splitting logic as the primary loader so that
+        ayah 0 (Basmala) and ayah 1 (remainder) are keyed correctly for every
+        surah that carries a Basmala (i.e. all except surahs 1 and 9).
+
+        Args:
+            style: The QuranStyle whose resource file to open.
+
+        Returns:
+            Dict mapping (surah_number, ayah_number) -> raw text string.
+        """
+        file_path = self._get_data_file_path(style)
+        lookup: Dict = {}
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or line.startswith('='):
+                    continue
+                parts = line.split('|')
+                if len(parts) != 3:
+                    continue
+                try:
+                    surah_num = int(parts[0])
+                    ayah_num = int(parts[1])
+                    text = parts[2]
+                except ValueError:
+                    continue
+
+                # Non-Basmala surahs or non-first ayahs: store as-is
+                if surah_num in self.SURAHS_WITHOUT_BASMALA or ayah_num != 1:
+                    lookup[(surah_num, ayah_num)] = text
+                    continue
+
+                # First ayah of other surahs: split out Basmala (ayah 0) from remainder (ayah 1)
+                if is_basmala_present(text):
+                    remainder = remove_basmala_from_text(text)
+                    if remainder and remainder in text:
+                        split_idx = text.find(remainder)
+                        alt_basmala = text[:split_idx].strip()
+                    else:
+                        alt_basmala = text
+                        remainder = ''
+                    lookup[(surah_num, 0)] = alt_basmala
+                    if remainder:
+                        lookup[(surah_num, 1)] = remainder
+                else:
+                    lookup[(surah_num, ayah_num)] = text
+
+        return lookup
+
     def load_quran_data(self) -> QuranDatabase:
         """
-        Load and process all Quran verses from the text file.
-        
+        Load and process all Quran verses.
+
+        Phase 1 — primary corpus (quran-uthmani_all.txt): builds the full
+        QuranDatabase with text / text_normalized / Basmala extraction.
+
+        Phase 2 — alt corpora: populates verse.alt[key] for each of the five
+        alternate text variants (simple-clean, simple-minimal, simple-plain,
+        simple, uthmani).
+
+        Phase 3 — imlaai corpus: populates verse.text_imlaai.
+
         Returns:
-            QuranDatabase: Complete database with all verses processed
+            QuranDatabase: Complete database with all verses and alt texts.
         """
+        # ── Phase 1: primary load ────────────────────────────────────────────
         database = QuranDatabase()
         database.corpus_style = self.style
-        
+
         with open(self.data_file_path, 'r', encoding='utf-8') as file:
             for line_number, line in enumerate(file, 1):
                 line = line.strip()
-                
-                # Skip empty lines and comments/copyright lines
+
                 if not line or line.startswith('#') or line.startswith('='):
                     continue
-                
+
                 try:
                     verse = self._parse_verse_line(line)
                     processed_verses = self._process_verse(verse)
-                    
-                    # Add all processed verses to the database
                     for processed_verse in processed_verses:
                         database.add_verse(processed_verse)
-                    
                 except Exception as e:
                     raise ValueError(
                         f"Error processing line {line_number}: {line}. "
                         f"Error: {str(e)}"
                     )
-        
+
+        # ── Phase 2: alt corpora ─────────────────────────────────────────────
+        for alt_key, alt_style in self.ALT_CORPORA.items():
+            try:
+                alt_lookup = self._load_alt_corpus_lookup(alt_style)
+                for surah in database.surahs.values():
+                    for verse in surah.ayahs.values():
+                        verse.alt[alt_key] = alt_lookup.get(
+                            (verse.surah_number, verse.ayah_number)
+                        )
+            except FileNotFoundError:
+                pass  # alt corpus missing — leave None values
+
+        # ── Phase 3: imlaai corpus ───────────────────────────────────────────
+        try:
+            imlaai_lookup = self._load_alt_corpus_lookup(self.IMLAAI_CORPUS)
+            for surah in database.surahs.values():
+                for verse in surah.ayahs.values():
+                    verse.text_imlaai = imlaai_lookup.get(
+                        (verse.surah_number, verse.ayah_number)
+                    )
+        except FileNotFoundError:
+            pass  # imlaai corpus missing — leave None values
+
         return database
     
     def _parse_verse_line(self, line: str) -> QuranVerse:
@@ -203,104 +276,61 @@ class QuranLoader:
         return verses_to_return
 
 
-# Cache of all loaded databases keyed by style
-_quran_databases: Dict[QuranStyle, QuranDatabase] = {}
-
-# The current default style (None until first initialization)
-_default_style: Optional[QuranStyle] = None
+# Single unified cached database (all corpus variants merged into each QuranVerse)
+_quran_database: Optional[QuranDatabase] = None
 
 
 def initialize_quran_database(_style: QuranStyle = None) -> QuranDatabase:
     """
-    Initialize and load the Quran database.
-    This function is called once per style; subsequent calls return the cached instance.
+    Initialize and load the unified Quran database.
 
-    If _style is None, the default style is determined from environment variables
-    (QAL_STYLE) or the current default_settings.
+    Loads the primary corpus (quran-uthmani_all.txt) and merges all alternate
+    corpus texts inline into every QuranVerse.  Subsequent calls return the
+    cached instance regardless of the ``_style`` argument (which is kept for
+    call-site compatibility but is no longer used).
 
     Returns:
-        QuranDatabase: The loaded Quran database
+        QuranDatabase: The loaded Quran database.
     """
-    global _quran_databases
-    global _default_style
+    global _quran_database
     global default_settings
 
-    # Create the loader — this triggers _load_env() which reads env vars and
-    # updates default_settings.style to the env-configured value.
-    loader = QuranLoader(_style)
+    if _quran_database is not None:
+        return _quran_database
 
-    # Determine the effective style:
-    #   • if the caller explicitly requested a style, use that
-    #   • otherwise use the env/settings-configured default
-    effective_style = _style if _style is not None else default_settings.style
-
-    # Track the default style (first call without an explicit style wins unless
-    # switch_quran_style() has already been called)
-    if _default_style is None:
-        _default_style = effective_style
-
-    # Return from cache if already loaded
-    if effective_style in _quran_databases:
-        return _quran_databases[effective_style]
-
-    # Load and cache
+    loader = QuranLoader()
     db = loader.load_quran_data()
 
     if default_settings.cache_enabled:
         db.finalize_cache()
 
     print(f"✓ Quran database loaded successfully:")
-    print(f"  - Style: {db.corpus_style.name}, file: {db.corpus_style.value}")
+    print(f"  - Primary corpus: {db.corpus_style.name} ({db.corpus_style.value})")
+    print(f"  - Alt corpora merged: {', '.join(QuranLoader.ALT_CORPORA.keys())}, imlaai")
     print(f"  - Total verses: {db.total_verses}")
     print(f"  - Total surahs: {db.total_surahs}")
     print(f"  - Source: Tanzil.net")
     if default_settings.cache_enabled:
         print(f"  - Performance cache: enabled")
 
-    _quran_databases[effective_style] = db
+    _quran_database = db
     return db
 
 
 def get_quran_database(_style: QuranStyle = None) -> QuranDatabase:
     """
-    Get the Quran database.
+    Return the unified Quran database, initializing it on first call.
 
-    • Called without arguments → returns the default configured database
-      (loading it on first call if necessary).
-    • Called with a QuranStyle → returns that specific database, loading and
-      caching it if it has not been loaded yet. The default is not changed.
-
-    Returns:
-        QuranDatabase: The requested database
-    """
-    if _style is None:
-        # Return default database, initialising if needed
-        if _default_style is not None and _default_style in _quran_databases:
-            return _quran_databases[_default_style]
-        return initialize_quran_database(None)
-
-    # Specific style requested — serve from cache or load
-    if _style not in _quran_databases:
-        return initialize_quran_database(_style)
-    return _quran_databases[_style]
-
-
-def switch_quran_style(new_style: QuranStyle) -> QuranDatabase:
-    """
-    Switch the default Quran database to a different style.
-
-    The new style is loaded and cached if not already done.  All previously
-    loaded databases remain available in the cache; nothing is discarded.
-
-    Args:
-        new_style (QuranStyle): The style to make the new default.
+    The ``_style`` argument is accepted for call-site compatibility but is
+    no longer used — the database always contains all corpus variants merged
+    inline into each QuranVerse.
 
     Returns:
-        QuranDatabase: The Quran database for the new style.
+        QuranDatabase: The unified database.
     """
-    global _default_style
-    _default_style = new_style
-    return get_quran_database(new_style)
+    if _quran_database is not None:
+        return _quran_database
+    return initialize_quran_database()
 
 
 def update_loader_settings(new_settings: LoaderSettings):
