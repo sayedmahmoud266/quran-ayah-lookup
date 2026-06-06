@@ -45,6 +45,8 @@ class QuranVerse:
     text: str
     text_normalized: str
     is_basmalah: bool = False
+    is_istiadhah: bool = False
+    is_tasdiq: bool = False
     text_imlaai: Optional[str] = None
     alt: Dict[str, Optional[str]] = field(default_factory=lambda: {
         'simple-clean':   None,
@@ -55,7 +57,14 @@ class QuranVerse:
     })
 
     def __str__(self) -> str:
-        verse_type = "Basmala" if self.is_basmalah else "Ayah"
+        if self.is_istiadhah:
+            verse_type = "Istia'dhah"
+        elif self.is_tasdiq:
+            verse_type = "Tasdiq"
+        elif self.is_basmalah:
+            verse_type = "Basmala"
+        else:
+            verse_type = "Ayah"
         return f"{verse_type} {self.surah_number}:{self.ayah_number} - {self.text[:50]}..."
     
     def __repr__(self) -> str:
@@ -70,6 +79,8 @@ class QuranVerse:
             'text': self.text,
             'text_normalized': self.text_normalized,
             'is_basmalah': self.is_basmalah,
+            'is_istiadhah': self.is_istiadhah,
+            'is_tasdiq': self.is_tasdiq,
             'text_imlaai': self.text_imlaai,
             'alt': dict(self.alt),
         }
@@ -290,6 +301,7 @@ class QuranDatabase:
         corpus_words_list_normalized (List[str]): All words from the Quran (normalized) in order
     """
     surahs: Dict[int, QuranChapter] = field(default_factory=dict)
+    _special_verses: Dict[tuple, 'QuranVerse'] = field(default_factory=dict)
     total_verses: int = 0
     total_verses_without_basmalah: int = 0
     total_surahs: int = 114
@@ -352,8 +364,15 @@ class QuranDatabase:
         
         self._cache_enabled = True
     
+    def register_special_verse(self, verse: 'QuranVerse') -> None:
+        """Register a special verse (istia'dhah or tasdiq) in the dedicated lookup."""
+        self._special_verses[(verse.surah_number, verse.ayah_number)] = verse
+
     def get_verse(self, surah_number: int, ayah_number: int) -> QuranVerse:
         """Get a specific verse by surah and ayah number (O(1) operation)."""
+        special = self._special_verses.get((surah_number, ayah_number))
+        if special is not None:
+            return special
         if surah_number not in self.surahs:
             raise ValueError(f"Surah {surah_number} not found")
         return self.surahs[surah_number].get_verse(ayah_number)
@@ -470,9 +489,47 @@ class QuranDatabase:
         ref = (ref_surah, ref_ayah)
         return [v for v in self.get_all_verses() if (v.surah_number, v.ayah_number) > ref]
 
-    def search_text(self, query: str, normalized: bool = True,
-                    surah_hint: Optional[int] = None,
-                    start_after: Optional[tuple] = None) -> List[QuranVerse]:
+    # ------------------------------------------------------------------
+    # Special-verse matching helpers
+    # ------------------------------------------------------------------
+
+    def _match_special_verses_exact(
+        self, query: str, normalized: bool
+    ) -> 'tuple[Optional[QuranVerse], Optional[QuranVerse]]':
+        """Return (istia'dhah_verse_or_None, tasdiq_verse_or_None) if query is a
+        substring of the respective special verse's text."""
+        istia: Optional[QuranVerse] = None
+        tasdiq: Optional[QuranVerse] = None
+        for verse in self._special_verses.values():
+            search_text = verse.text_normalized if normalized else verse.text
+            if query in search_text:
+                if verse.is_istiadhah:
+                    istia = verse
+                elif verse.is_tasdiq:
+                    tasdiq = verse
+        return istia, tasdiq
+
+    def _match_special_verses_fuzzy(
+        self, query: str, threshold: float, normalized: bool
+    ) -> 'tuple[Optional[FuzzySearchResult], Optional[FuzzySearchResult]]':
+        """Return (istia'dhah_result_or_None, tasdiq_result_or_None) via fuzzy
+        matching against each special verse independently."""
+        from .text_utils import fuzzy_search_text
+        istia: Optional['FuzzySearchResult'] = None
+        tasdiq: Optional['FuzzySearchResult'] = None
+        for verse in self._special_verses.values():
+            hits = fuzzy_search_text(query, [verse], threshold, normalized)
+            if hits:
+                if verse.is_istiadhah:
+                    istia = hits[0]
+                elif verse.is_tasdiq:
+                    tasdiq = hits[0]
+        return istia, tasdiq
+
+    def search_text(
+        self, query: str, normalized: bool = True,
+        surah_hint: Optional[int] = None,
+        start_after: Optional[tuple] = None) -> List[QuranVerse]:
         """
         Search for verses containing the query text.
 
@@ -483,7 +540,8 @@ class QuranDatabase:
             start_after: Optional (surah, ayah) tuple; searches after this position, fallback to full Quran
 
         Returns:
-            List of matching verses
+            List of matching verses. Istia'dhah is always at index 0 if matched;
+            tasdiq is always last if matched — they are never placed in the middle.
         """
         def _do_search(verses):
             results = []
@@ -504,38 +562,47 @@ class QuranDatabase:
                     subset = [v for v in subset if (v.surah_number, v.ayah_number) > ref]
                 results = _do_search(subset)
                 if results:
-                    return results
-            # Fallback: full corpus, re-sort by surah proximity
-            all_results = _do_search(self.get_all_verses())
-            return sorted(all_results, key=lambda v: (
-                abs(v.surah_number - _hint), v.surah_number, v.ayah_number
-            ))
-
-        if start_after is not None:
+                    break
+            else:
+                # Fallback: full corpus, re-sort by surah proximity
+                results = sorted(
+                    _do_search(self.get_all_verses()),
+                    key=lambda v: (abs(v.surah_number - _hint), v.surah_number, v.ayah_number)
+                )
+        elif start_after is not None:
             ref_surah, ref_ayah = start_after
             after_verses = self._get_verses_after_position(ref_surah, ref_ayah)
             results = _do_search(after_verses)
-            if results:
-                return results
-            # Fallback: full corpus, results after anchor ranked first
-            all_results = _do_search(self.get_all_verses())
-            return sorted(all_results, key=lambda v: (
-                0 if (v.surah_number, v.ayah_number) > (ref_surah, ref_ayah) else 1,
-                v.surah_number, v.ayah_number
-            ))
+            if not results:
+                # Fallback: full corpus, results after anchor ranked first
+                results = sorted(
+                    _do_search(self.get_all_verses()),
+                    key=lambda v: (
+                        0 if (v.surah_number, v.ayah_number) > (ref_surah, ref_ayah) else 1,
+                        v.surah_number, v.ayah_number
+                    )
+                )
+        else:
+            results = []
+            for surah in self.surahs.values():
+                for verse in surah.get_all_verses():
+                    search_text = verse.text_normalized if normalized else verse.text
+                    if query in search_text:
+                        results.append(verse)
 
-        results = []
-        for surah in self.surahs.values():
-            for verse in surah.get_all_verses():
-                search_text = verse.text_normalized if normalized else verse.text
-                if query in search_text:
-                    results.append(verse)
+        # Pin special verses: istia'dhah always first, tasdiq always last
+        istia, tasdiq = self._match_special_verses_exact(query, normalized)
+        if istia is not None:
+            results.insert(0, istia)
+        if tasdiq is not None:
+            results.append(tasdiq)
         return results
     
-    def fuzzy_search(self, query: str, threshold: float = 0.7, normalized: bool = True,
-                    max_results: Optional[int] = None,
-                    surah_hint: Optional[int] = None,
-                    start_after: Optional[tuple] = None) -> List['FuzzySearchResult']:
+    def fuzzy_search(
+        self, query: str, threshold: float = 0.7, normalized: bool = True,
+        max_results: Optional[int] = None,
+        surah_hint: Optional[int] = None,
+        start_after: Optional[tuple] = None) -> List['FuzzySearchResult']:
         """
         Perform fuzzy search with partial text matching across all verses.
 
@@ -548,7 +615,8 @@ class QuranDatabase:
             start_after: Optional (surah, ayah) tuple; searches after this position, fallback to full Quran
 
         Returns:
-            List of FuzzySearchResult objects sorted by similarity score
+            List of FuzzySearchResult objects sorted by similarity score.
+            Istia'dhah is always at index 0 if matched; tasdiq is always last.
         """
         from .text_utils import fuzzy_search_text
 
@@ -563,26 +631,34 @@ class QuranDatabase:
                     subset = [v for v in subset if (v.surah_number, v.ayah_number) > ref]
                 results = fuzzy_search_text(query, subset, threshold, normalized, max_results)
                 if results:
-                    return results
-            # Fallback: full corpus, re-sort by surah proximity
-            all_results = fuzzy_search_text(query, self.get_all_verses(), threshold, normalized, max_results)
-            return sorted(all_results, key=lambda r: (-r.similarity, abs(r.verse.surah_number - _hint)))
-
-        if start_after is not None:
+                    break
+            else:
+                results = sorted(
+                    fuzzy_search_text(query, self.get_all_verses(), threshold, normalized, max_results),
+                    key=lambda r: (-r.similarity, abs(r.verse.surah_number - _hint))
+                )
+        elif start_after is not None:
             ref_surah, ref_ayah = start_after
             after_verses = self._get_verses_after_position(ref_surah, ref_ayah)
             results = fuzzy_search_text(query, after_verses, threshold, normalized, max_results)
-            if results:
-                return results
-            # Fallback: full corpus, results after anchor ranked first
-            all_results = fuzzy_search_text(query, self.get_all_verses(), threshold, normalized, max_results)
-            return sorted(all_results, key=lambda r: (
-                0 if (r.verse.surah_number, r.verse.ayah_number) > (ref_surah, ref_ayah) else 1,
-                -r.similarity
-            ))
+            if not results:
+                results = sorted(
+                    fuzzy_search_text(query, self.get_all_verses(), threshold, normalized, max_results),
+                    key=lambda r: (
+                        0 if (r.verse.surah_number, r.verse.ayah_number) > (ref_surah, ref_ayah) else 1,
+                        -r.similarity
+                    )
+                )
+        else:
+            results = fuzzy_search_text(query, self.get_all_verses(), threshold, normalized, max_results)
 
-        all_verses = self.get_all_verses()
-        return fuzzy_search_text(query, all_verses, threshold, normalized, max_results)
+        # Pin special verses: istia'dhah always first, tasdiq always last
+        istia, tasdiq = self._match_special_verses_fuzzy(query, threshold, normalized)
+        if istia is not None:
+            results.insert(0, istia)
+        if tasdiq is not None:
+            results.append(tasdiq)
+        return results
     
     def get_surah_count(self) -> int:
         """Get the total number of surahs in the database."""

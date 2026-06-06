@@ -208,3 +208,178 @@ def test_verse_to_dict_includes_alt_and_imlaai():
 def test_switch_quran_style_not_importable():
     """switch_quran_style no longer exists in the loader module."""
     assert not hasattr(loader_module, 'switch_quran_style')
+
+
+# ---------------------------------------------------------------------------
+# Special verses — Istia'dhah (0:0) and Tasdiq (999:999)
+# ---------------------------------------------------------------------------
+
+def test_get_verse_istiadhah():
+    """get_verse(0, 0) returns the Istia'dhah verse."""
+    db = get_quran_database()
+    verse = db.get_verse(0, 0)
+    assert verse.is_istiadhah is True
+    assert verse.surah_number == 0
+    assert verse.ayah_number == 0
+
+
+def test_get_verse_tasdiq():
+    """get_verse(999, 999) returns the Tasdiq verse."""
+    db = get_quran_database()
+    verse = db.get_verse(999, 999)
+    assert verse.is_tasdiq is True
+    assert verse.surah_number == 999
+    assert verse.ayah_number == 999
+
+
+def test_istiadhah_not_in_surahs():
+    """Surah 0 must not appear in db.surahs."""
+    db = get_quran_database()
+    assert 0 not in db.surahs
+
+
+def test_tasdiq_not_in_surahs():
+    """Surah 999 must not appear in db.surahs."""
+    db = get_quran_database()
+    assert 999 not in db.surahs
+
+
+def test_get_all_verses_excludes_special():
+    """get_all_verses() must not include Istia'dhah or Tasdiq."""
+    db = get_quran_database()
+    for verse in db.get_all_verses():
+        assert not verse.is_istiadhah
+        assert not verse.is_tasdiq
+
+
+def test_verse_count_excludes_special():
+    """get_verse_count() is unchanged by special verses."""
+    db = get_quran_database()
+    # Standard Quran corpus has 6236 non-basmalah verses
+    count = db.get_verse_count(include_basmalah=False)
+    assert count == 6236
+
+
+def test_istiadhah_flags():
+    """is_istiadhah=True; is_basmalah and is_tasdiq are False."""
+    db = get_quran_database()
+    verse = db.get_verse(0, 0)
+    assert verse.is_istiadhah is True
+    assert verse.is_basmalah is False
+    assert verse.is_tasdiq is False
+
+
+def test_tasdiq_flags():
+    """is_tasdiq=True; is_basmalah and is_istiadhah are False."""
+    db = get_quran_database()
+    verse = db.get_verse(999, 999)
+    assert verse.is_tasdiq is True
+    assert verse.is_basmalah is False
+    assert verse.is_istiadhah is False
+
+
+def test_special_verses_have_alt_keys():
+    """Both special verses carry all 5 alt keys."""
+    db = get_quran_database()
+    for ref in [(0, 0), (999, 999)]:
+        verse = db.get_verse(*ref)
+        assert set(verse.alt.keys()) == EXPECTED_ALT_KEYS
+        for v in verse.alt.values():
+            assert v is not None
+
+
+def test_special_verses_have_text_imlaai():
+    """Both special verses carry a non-empty text_imlaai."""
+    db = get_quran_database()
+    for ref in [(0, 0), (999, 999)]:
+        verse = db.get_verse(*ref)
+        assert verse.text_imlaai is not None
+        assert len(verse.text_imlaai) > 0
+
+
+def test_to_dict_includes_istiadhah_flag():
+    """to_dict() on Istia'dhah verse includes is_istiadhah=True."""
+    db = get_quran_database()
+    d = db.get_verse(0, 0).to_dict()
+    assert d['is_istiadhah'] is True
+    assert d['is_tasdiq'] is False
+
+
+def test_to_dict_includes_tasdiq_flag():
+    """to_dict() on Tasdiq verse includes is_tasdiq=True."""
+    db = get_quran_database()
+    d = db.get_verse(999, 999).to_dict()
+    assert d['is_tasdiq'] is True
+    assert d['is_istiadhah'] is False
+
+
+def test_regular_verse_flags_are_false():
+    """Regular corpus verses have both special flags set to False."""
+    db = get_quran_database()
+    verse = db.get_verse(2, 1)
+    assert verse.is_istiadhah is False
+    assert verse.is_tasdiq is False
+
+
+def test_search_text_finds_istiadhah_at_front():
+    """search_text for istia'dhah text returns it at index 0."""
+    db = get_quran_database()
+    results = db.search_text("اعوذ بالله", normalized=True)
+    assert len(results) >= 1
+    assert results[0].is_istiadhah is True
+
+
+def test_search_text_finds_tasdiq_at_end():
+    """search_text for tasdiq text returns it as last result."""
+    db = get_quran_database()
+    results = db.search_text("صدق الله", normalized=True)
+    assert len(results) >= 1
+    assert results[-1].is_tasdiq is True
+
+
+def test_search_text_istiadhah_standalone():
+    """Standalone search for exact istia'dhah phrase returns it."""
+    db = get_quran_database()
+    results = db.search_text("اعوذ بالله من الشيطان الرجيم", normalized=True)
+    assert any(v.is_istiadhah for v in results)
+
+
+def test_search_text_tasdiq_standalone():
+    """Standalone search for exact tasdiq phrase returns it."""
+    db = get_quran_database()
+    results = db.search_text("صدق الله العظيم", normalized=True)
+    assert any(v.is_tasdiq for v in results)
+
+
+def test_fuzzy_search_finds_istiadhah_at_front():
+    """fuzzy_search for istia'dhah phrase returns it at index 0."""
+    db = get_quran_database()
+    results = db.fuzzy_search("اعوذ بالله من الشيطان الرجيم", threshold=0.7, normalized=True)
+    assert len(results) >= 1
+    assert results[0].verse.is_istiadhah is True
+
+
+def test_fuzzy_search_finds_tasdiq_at_end():
+    """fuzzy_search for tasdiq phrase returns it as last result."""
+    db = get_quran_database()
+    results = db.fuzzy_search("صدق الله العظيم", threshold=0.7, normalized=True)
+    assert len(results) >= 1
+    assert results[-1].verse.is_tasdiq is True
+
+
+def test_istiadhah_not_in_middle_of_results():
+    """When other results exist, Istia'dhah is pinned to index 0, not middle."""
+    db = get_quran_database()
+    results = db.search_text("اعوذ بالله", normalized=True)
+    if len(results) > 1:
+        for v in results[1:]:
+            assert not v.is_istiadhah
+
+
+def test_tasdiq_not_in_middle_of_results():
+    """When other results exist, Tasdiq is pinned to last position, not middle."""
+    db = get_quran_database()
+    results = db.search_text("صدق الله", normalized=True)
+    if len(results) > 1:
+        for v in results[:-1]:
+            assert not v.is_tasdiq

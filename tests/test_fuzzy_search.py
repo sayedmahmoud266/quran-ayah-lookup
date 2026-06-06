@@ -122,15 +122,14 @@ def test_fuzzy_search_with_different_thresholds():
 def test_fuzzy_search_max_results():
     """Test fuzzy search with max_results parameter."""
     query = "الله"
-    
-    # Test with limit
+
+    # Test with limit — corpus results are capped; up to 2 special verses
+    # (istia'dhah / tasdiq) may be pinned at the edges on top of the limit.
     limited_results = fuzzy_search(query, max_results=10)
-    
-    assert len(limited_results) <= 10
-    
-    # Test without limit should return more (if available)
+    assert len(limited_results) <= 10 + 2
+
+    # Test without limit should return at least as many (if available)
     unlimited_results = fuzzy_search(query, max_results=None)
-    
     assert len(unlimited_results) >= len(limited_results)
 
 
@@ -188,11 +187,14 @@ def test_fuzzy_search_sorting():
     """Test that fuzzy search results are sorted by similarity."""
     query = "الرحمن الرحيم"
     results = fuzzy_search(query, threshold=0.6, max_results=20)
-    
+
     if len(results) > 1:
-        # Results should be sorted by similarity (descending)
-        similarities = [result.similarity for result in results]
-        assert similarities == sorted(similarities, reverse=True)
+        # Special verses are pinned at the edges; exclude them from the sort check.
+        corpus = [r for r in results
+                  if not r.verse.is_istiadhah and not r.verse.is_tasdiq]
+        if len(corpus) > 1:
+            sims = [r.similarity for r in corpus]
+            assert sims == sorted(sims, reverse=True)
 
 
 def test_fuzzy_search_database_integration():

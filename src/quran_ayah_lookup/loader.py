@@ -15,6 +15,46 @@ from .text_utils import (
     get_normalized_basmala
 )
 
+# ---------------------------------------------------------------------------
+# Special verses — exist outside any corpus file
+# ---------------------------------------------------------------------------
+
+_ISTIADHAH_TEXT = "أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ"
+ISTIADHAH_VERSE = QuranVerse(
+    surah_number=0,
+    ayah_number=0,
+    text=_ISTIADHAH_TEXT,
+    text_normalized=normalize_arabic_text(_ISTIADHAH_TEXT),
+    is_basmalah=False,
+    is_istiadhah=True,
+    text_imlaai="أعوذ بالله من الشيطان الرجيم",
+    alt={
+        'simple-clean':   'اعوذ بالله من الشيطان الرجيم',
+        'simple-minimal': 'اعوذ بالله من الشيطان الرجيم',
+        'simple-plain':   'اعوذ بالله من الشيطان الرجيم',
+        'simple':         'أعوذ بالله من الشيطان الرجيم',
+        'uthmani':        'أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ',
+    },
+)
+
+_TASDIQ_TEXT = "صَدَقَ اللَّهُ الْعَظِيمُ"
+TASDIQ_VERSE = QuranVerse(
+    surah_number=999,
+    ayah_number=999,
+    text=_TASDIQ_TEXT,
+    text_normalized=normalize_arabic_text(_TASDIQ_TEXT),
+    is_basmalah=False,
+    is_tasdiq=True,
+    text_imlaai="صدق الله العظيم",
+    alt={
+        'simple-clean':   'صدق الله العظيم',
+        'simple-minimal': 'صدق الله العظيم',
+        'simple-plain':   'صدق الله العظيم',
+        'simple':         'صدق الله العظيم',
+        'uthmani':        'صَدَقَ اللَّهُ الْعَظِيمُ',
+    },
+)
+
 
 class QuranLoader:
     """Handles loading and processing of Quran text data."""
@@ -182,6 +222,10 @@ class QuranLoader:
                     )
         except FileNotFoundError:
             pass  # imlaai corpus missing — leave None values
+
+        # ── Phase 4: inject special verses ──────────────────────────────────
+        database.register_special_verse(ISTIADHAH_VERSE)
+        database.register_special_verse(TASDIQ_VERSE)
 
         return database
     

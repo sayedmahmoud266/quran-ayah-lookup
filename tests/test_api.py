@@ -59,6 +59,9 @@ def test_get_verse_success(client):
     assert "alt" in data
     assert isinstance(data["alt"], dict)
     assert set(data["alt"].keys()) == {'simple-clean', 'simple-minimal', 'simple-plain', 'simple', 'uthmani'}
+    # Special-verse flags must be present and False for normal verses
+    assert data["is_istiadhah"] is False
+    assert data["is_tasdiq"] is False
 
 
 def test_get_verse_basmala(client):
@@ -253,8 +256,10 @@ def test_fuzzy_search_with_limit(client):
     response = client.get("/fuzzy-search?query=الله&limit=3")
     assert response.status_code == 200
     data = response.json()
-    
-    assert len(data) <= 3
+
+    # Corpus results are capped at the limit; up to 2 special verses
+    # (istia'dhah and tasdiq) may be pinned at the front/end on top of that.
+    assert len(data) <= 3 + 2
 
 
 def test_fuzzy_search_sorted_by_similarity(client):
@@ -262,10 +267,15 @@ def test_fuzzy_search_sorted_by_similarity(client):
     response = client.get("/fuzzy-search?query=بسم الله")
     assert response.status_code == 200
     data = response.json()
-    
+
     if len(data) > 1:
-        similarities = [result["similarity"] for result in data]
-        assert similarities == sorted(similarities, reverse=True)
+        # Special verses (istia'dhah / tasdiq) are pinned at the edges and are
+        # excluded from the sort check — only corpus results must be sorted.
+        corpus = [r for r in data
+                  if not r["verse"].get("is_istiadhah") and not r["verse"].get("is_tasdiq")]
+        if len(corpus) > 1:
+            sims = [r["similarity"] for r in corpus]
+            assert sims == sorted(sims, reverse=True)
 
 
 def test_fuzzy_search_invalid_threshold(client):

@@ -63,6 +63,8 @@ class VerseResponse(BaseModel):
     text: str = Field(..., description="Original Arabic text with diacritics")
     text_normalized: str = Field(..., description="Normalized Arabic text without diacritics")
     is_basmalah: bool = Field(..., description="True if this is a Basmala verse")
+    is_istiadhah: bool = Field(False, description="True if this is the Istia'dhah (0:0)")
+    is_tasdiq: bool = Field(False, description="True if this is the Tasdiq (999:999)")
     text_imlaai: Optional[str] = Field(None, description="Imlaai script text (for ASR/search)")
     alt: Dict[str, Optional[str]] = Field(default_factory=dict, description="Alternate corpus texts keyed by style name")
 
@@ -267,6 +269,8 @@ def verse_to_response(verse: QuranVerse) -> VerseResponse:
         text=verse.text,
         text_normalized=verse.text_normalized,
         is_basmalah=verse.is_basmalah,
+        is_istiadhah=verse.is_istiadhah,
+        is_tasdiq=verse.is_tasdiq,
         text_imlaai=verse.text_imlaai,
         alt=dict(verse.alt),
     )
