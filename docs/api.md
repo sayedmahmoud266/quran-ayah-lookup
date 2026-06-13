@@ -228,6 +228,39 @@ elif result['method'] == 'sliding_window':
 - **Flexible configuration**: Separate thresholds for each method
 - **Type-safe results**: Result type matches the method used
 
+### asr_sequential_fuzzy_search(segments: List[str], threshold: float = 0.5, consensus_window: int = 7, db: QuranDatabase = None) → List[ASRSegmentResult]
+
+Map an ordered list of ASR output segments to their Quran verses using a two-pass algorithm.
+
+```python
+results = qal.asr_sequential_fuzzy_search([
+    'بسم الله الرحمن الرحيم',
+    'سبح اسم ربك الاعلى',
+    'الذي خلق فسوى',
+    'حا ميم',                 # imlaai spelling — handled automatically
+    'والكتاب المبين',
+])
+for r in results:
+    ref = f"{r.verse.surah_number}:{r.verse.ayah_number}" if r.verse else "unresolved"
+    print(f"[{r.segment_index}] {r.segment_text[:30]!r} → {ref}  sim={r.similarity:.3f}")
+```
+
+**Parameters:**
+- `segments` (List[str]): Ordered list of ASR output strings
+- `threshold` (float): Minimum similarity score 0.0–1.0 (default 0.5; lower than usual to tolerate ASR noise)
+- `consensus_window` (int): Sliding-window size for surah majority vote (default 7)
+- `db` (`QuranDatabase`, optional): Pre-loaded database; uses `get_quran_database()` if `None`
+
+**Returns:** List of `ASRSegmentResult` objects, one per input segment, in input order.
+
+**Algorithm — Pass 1**: Each segment is searched via four attempts:
+1. Uthmani-normalised single-verse fuzzy search
+2. Imlaai corpus single-verse search (handles `"حا ميم"`, `"الف لام ميم"`, `"يا سين"`, etc.)
+3. Uthmani single-verse with muqatta'at normalisation
+4. Sliding-window multi-ayah search (for long segments or low confidence)
+
+**Algorithm — Pass 2**: Sliding-window majority vote identifies the dominant surah at each position. Outliers are re-searched with contextual constraints. Still-unresolved segments receive a best-guess verse by interpolation from neighbours.
+
 ### get_surah_verses(surah_number: int) → List[QuranVerse]
 
 Get all verses from a specific surah.
@@ -417,6 +450,51 @@ print(f"Matched {total_words} words")
 
 # Check if match crosses surah boundary
 crosses_surah = match.start_surah != match.end_surah
+```
+
+### ASRSegmentResult
+
+Represents the result of mapping a single ASR output segment to a Quran verse (or verses).
+
+```python
+results = qal.asr_sequential_fuzzy_search(["سبح اسم ربك الاعلى", "الذي خلق فسوى"])
+for r in results:
+    print(f"Segment [{r.segment_index}]: {r.segment_text!r}")
+    if r.verse:
+        print(f"  → {r.verse.surah_number}:{r.verse.ayah_number}")
+        print(f"  is_multi_ayah={r.is_multi_ayah}, words {r.start_word}–{r.end_word}")
+        print(f"  similarity={r.similarity:.3f}, corpus={r.corpus_used}, corrected={r.corrected}")
+```
+
+**Attributes:**
+- `segment_index` (int): Position in the input list (0-based)
+- `segment_text` (str): Original ASR string for this segment
+- `verse` (Optional[QuranVerse]): First (or only) matched verse; `None` only for truly unresolvable noise
+- `verses` (List[QuranVerse]): All matched verses in order (single-element for single-ayah; multi-element for multi-ayah)
+- `is_multi_ayah` (bool): `True` when the segment spans more than one ayah
+- `start_word` (int): Word offset of match start within the first matched verse (0-based)
+- `end_word` (int): Word offset of match end within the last matched verse (exclusive)
+- `similarity` (float): Best similarity score (0.0–1.0)
+- `matched_text` (str): Portion of the corpus text that matched
+- `corpus_used` (str): `'uthmani'` | `'imlaai'` | `'none'`
+- `corrected` (bool): `True` if Pass 2 changed the assignment from Pass 1
+
+**Methods:**
+- `to_dict()` → dict: JSON-serializable dictionary
+
+**Usage Examples:**
+```python
+# Check for multi-ayah segments
+results = qal.asr_sequential_fuzzy_search([
+    "بسم الله الرحمن الرحيم الم ذلك الكتاب لا ريب فيه",  # two ayahs in one breath
+])
+r = results[0]
+if r.is_multi_ayah:
+    print([f"{v.surah_number}:{v.ayah_number}" for v in r.verses])  # ['2:0', '2:1', '2:2']
+
+# Serialise to JSON
+import json
+print(json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2))
 ```
 
 ### QuranChapter
@@ -988,6 +1066,94 @@ When no results found (method="none"):
 - Transparent about which method was used
 - Separate threshold controls for each method
 - Type-safe results based on method
+
+### ASR Sequential Search
+
+**POST /asr-search**
+
+Map an ordered list of ASR output segments to their Quran verses.
+
+Unlike all other search endpoints this one accepts a **JSON request body** (not query parameters), because the `segments` list can be arbitrarily long.
+
+Request body:
+```json
+{
+  "segments": [
+    "بسم الله الرحمن الرحيم",
+    "سبح اسم ربك الاعلى",
+    "الذي خلق فسوى",
+    "حا ميم",
+    "والكتاب المبين"
+  ],
+  "threshold": 0.5,
+  "consensus_window": 7
+}
+```
+
+Request body fields:
+- `segments` (array of strings, required): Ordered ASR output segments
+- `threshold` (float, optional, default 0.5): Minimum fuzzy similarity 0.0–1.0
+- `consensus_window` (int, optional, default 7): Sliding-window size for surah majority vote
+
+```bash
+curl -X POST http://127.0.0.1:8000/asr-search \
+  -H "Content-Type: application/json" \
+  -d '{"segments": ["سبح اسم ربك الاعلى", "الذي خلق فسوى", "حا ميم"], "threshold": 0.5}'
+```
+
+Response (list of segment results):
+```json
+[
+  {
+    "segment_index": 0,
+    "segment_text": "سبح اسم ربك الاعلى",
+    "verse": {
+      "surah_number": 87,
+      "ayah_number": 1,
+      "text": "سَبِّحِ ٱسْمَ رَبِّكَ ٱلْأَعْلَى",
+      "text_normalized": "سبح اسم ربك الاعلى",
+      "is_basmalah": false,
+      "is_istiadhah": false,
+      "is_tasdiq": false
+    },
+    "verses": [{"surah_number": 87, "ayah_number": 1, "...": "..."}],
+    "is_multi_ayah": false,
+    "similarity": 1.0,
+    "matched_text": "سبح اسم ربك الاعلى",
+    "start_word": 0,
+    "end_word": 4,
+    "corpus_used": "uthmani",
+    "corrected": false
+  }
+]
+```
+
+Key response fields per segment:
+- `verse` — first (or only) matched verse; `null` only for truly unresolvable noise
+- `verses` — array of all matched verses (multi-element when `is_multi_ayah` is `true`)
+- `is_multi_ayah` — `true` when the segment spans > 1 ayah
+- `start_word` / `end_word` — word offsets within the first/last matched verse
+- `similarity` — best match score 0.0–1.0
+- `corpus_used` — `"uthmani"` | `"imlaai"` | `"none"`
+- `corrected` — `true` if Pass 2 changed the assignment from Pass 1
+
+Using Python `requests`:
+```python
+import requests
+
+response = requests.post(
+    "http://127.0.0.1:8000/asr-search",
+    json={
+        "segments": ["بسم الله الرحمن الرحيم", "سبح اسم ربك الاعلى", "حا ميم"],
+        "threshold": 0.5,
+    }
+)
+results = response.json()
+for r in results:
+    verse = r["verse"]
+    ref = f"{verse['surah_number']}:{verse['ayah_number']}" if verse else "unresolved"
+    print(f"[{r['segment_index']}] {r['segment_text']!r} → {ref}  sim={r['similarity']:.3f}")
+```
 
 ### Database Statistics
 

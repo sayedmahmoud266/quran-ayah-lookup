@@ -18,6 +18,7 @@ A high-performance Python package for Quranic ayah lookup with **O(1) verse acce
 - 🔄 **Multi-Ayah Search**: Sliding window search for text spanning multiple verses
 - 🧠 **Smart Search**: Automatic method selection for optimal results
 - 📍 **Contextual Search Hints**: `surah_hint` and `start_after` narrow the initial search window before falling back to the full corpus — available across all search methods, CLI flags, and REST API params
+- 🎙️ **ASR Sequential Search**: Two-pass algorithm that maps ASR output segments to Quran verses — handles transcription noise, multi-ayah segments, muqatta'at spellings, and sequence correction via sliding-window majority vote
 - 📏 **Word-level Positioning**: Precise match locations within verses
 - 🎚️ **Smart Basmala Handling**: Automatic Basmala extraction and organization
 - 🔤 **Text Normalization**: Advanced Arabic diacritics removal and Alif normalization
@@ -99,6 +100,25 @@ print(f"Used {smart_result['method']} search, found {smart_result['count']} resu
 repeated = qal.fuzzy_search("فبأي الاء ربكما تكذبان")
 print(f"Found {len(repeated)} occurrences of this repeated phrase")
 
+# --- ASR Sequential Search ---
+
+# Map ASR output segments to Quran verses (two-pass alignment)
+segments = [
+    'بسم الله الرحمن الرحيم',
+    'سبح اسم ربك الاعلى',
+    'الذي خلق فسوى',
+    'حا ميم',              # imlaai spelling of حم (handled automatically)
+    'والكتاب المبين',
+]
+results = qal.asr_sequential_fuzzy_search(segments, threshold=0.5)
+for r in results:
+    if r.verse:
+        print(f"[{r.segment_index}] '{r.segment_text[:30]}' → {r.verse.surah_number}:{r.verse.ayah_number} sim={r.similarity:.3f}")
+
+# Access per-segment details
+for r in results:
+    print(f"is_multi_ayah={r.is_multi_ayah}, words {r.start_word}–{r.end_word}, corpus={r.corpus_used}, corrected={r.corrected}")
+
 # --- Contextual search hints ---
 
 # surah_hint: search Surah 12 first, expand ±1/±3, then full Quran
@@ -117,6 +137,162 @@ if 35 in surah:
 # Get all verses from a surah
 all_verses = surah.get_all_verses()
 ```
+
+## ASR Sequential Search
+
+Map an ordered list of ASR (Automatic Speech Recognition) output segments to their Quran verses.
+
+### When to use it
+
+ASR models produce pause-delimited text that can contain:
+- Transcription noise and spelling errors
+- Multiple consecutive ayahs in one segment (when the reciter doesn't pause)
+- Spelled-out muqatta'at like `"حا ميم"` instead of `"حم"`
+- Very short single-word segments
+
+Simple per-segment fuzzy search produces out-of-sequence results. `asr_sequential_fuzzy_search` repairs them with a two-pass algorithm.
+
+### How it works
+
+**Pass 1** runs four search attempts on each segment independently:
+1. Uthmani-normalised single-verse fuzzy search
+2. Imlaai corpus search (handles `"حا ميم"`, `"الف لام ميم"`, `"يا سين"`, etc.)
+3. Uthmani single-verse with automatic muqatta'at normalisation
+4. Sliding-window multi-ayah search (for long segments or low single-verse confidence)
+
+**Pass 2** runs a sliding-window majority vote to identify the dominant surah at each position. Outliers and unresolved segments are re-searched with contextual constraints. Still-unresolved segments receive a best-guess verse inferred from their neighbours.
+
+### Python Library
+
+```python
+import quran_ayah_lookup as qal
+
+segments = [
+    'اعوذ بالله من الشيطان الرجيم',
+    'بسم الله الرحمن الرحيم',
+    'سبح اسم ربك الاعلى',
+    'الذي خلق فسوى',
+    'والذي قدر فهدى',
+    'والذي اخرج المرعى',
+    'فجعله غثاء احوى',
+]
+
+results = qal.asr_sequential_fuzzy_search(segments, threshold=0.5)
+
+for r in results:
+    if r.verse is None:
+        print(f"[{r.segment_index}] unresolved")
+        continue
+    if r.is_multi_ayah:
+        refs = '-'.join(str(v.ayah_number) for v in r.verses)
+        print(f"[{r.segment_index}] {r.verse.surah_number}:{refs}  (multi-ayah)  sim={r.similarity:.3f}")
+    else:
+        print(f"[{r.segment_index}] {r.verse.surah_number}:{r.verse.ayah_number}  sim={r.similarity:.3f}  words {r.start_word}–{r.end_word}")
+
+# Multi-ayah segment — one breath, multiple verses
+long_segments = [
+    'بسم الله الرحمن الرحيم الف لام ميم ذلك الكتاب لا ريب فيه',  # covers Basmala + 2:1 + part of 2:2
+]
+results = qal.asr_sequential_fuzzy_search(long_segments)
+r = results[0]
+print(f"is_multi_ayah={r.is_multi_ayah}")   # True
+print([f"{v.surah_number}:{v.ayah_number}" for v in r.verses])  # ['2:0', '2:1', '2:2']
+
+# Tune sensitivity
+results = qal.asr_sequential_fuzzy_search(
+    segments,
+    threshold=0.4,          # lower = more tolerant of noise
+    consensus_window=5,     # smaller = faster surah transitions detected
+)
+```
+
+### ASRSegmentResult fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `segment_index` | `int` | Position in input list (0-based) |
+| `segment_text` | `str` | Original ASR string |
+| `verse` | `Optional[QuranVerse]` | First (or only) matched verse |
+| `verses` | `List[QuranVerse]` | All matched verses in order |
+| `is_multi_ayah` | `bool` | `True` when segment spans > 1 ayah |
+| `start_word` | `int` | Word offset of match start in first verse (0-based) |
+| `end_word` | `int` | Word offset of match end in last verse (exclusive) |
+| `similarity` | `float` | Best score 0.0–1.0 |
+| `corpus_used` | `str` | `'uthmani'` \| `'imlaai'` \| `'none'` |
+| `corrected` | `bool` | `True` if Pass 2 changed the assignment |
+
+### CLI
+
+```bash
+# Basic — segments as positional arguments
+qal asr-search "سبح اسم ربك الاعلى" "الذي خلق فسوى" "والذي قدر فهدى"
+
+# Muqatta'at are handled automatically
+qal asr-search "حا ميم" "والكتاب المبين" "انا انزلناه في ليلة مباركة"
+
+# Adjust sensitivity
+qal asr-search "بسم الله" "الحمد لله" --threshold 0.4 --window 5
+
+# Machine-readable JSON output
+qal asr-search "سبح اسم ربك الاعلى" "الذي خلق فسوى" --json
+```
+
+Example output:
+```
+ASR Search — 3 segment(s) | threshold=0.5 | window=7
+────────────────────────────────────────────────────────────
+
+[1/3] "سبح اسم ربك الاعلى"
+  → 87:1  sim=1.000  words 0–4  corpus=uthmani
+     سبح اسم ربك الاعلى
+
+[2/3] "الذي خلق فسوى"
+  → 87:2  sim=0.923  words 0–3  corpus=uthmani
+     الذى خلق فسوى
+
+[3/3] "والذي قدر فهدى"
+  → 87:3  sim=0.929  words 0–3  corpus=uthmani
+     والذى قدر فهدى
+```
+
+### REST API
+
+`POST /asr-search` — accepts a JSON body:
+
+```bash
+curl -X POST http://127.0.0.1:8000/asr-search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "segments": [
+      "بسم الله الرحمن الرحيم",
+      "سبح اسم ربك الاعلى",
+      "الذي خلق فسوى",
+      "حا ميم",
+      "والكتاب المبين"
+    ],
+    "threshold": 0.5,
+    "consensus_window": 7
+  }'
+```
+
+Using Python `requests`:
+
+```python
+import requests
+
+response = requests.post(
+    "http://127.0.0.1:8000/asr-search",
+    json={
+        "segments": ["سبح اسم ربك الاعلى", "الذي خلق فسوى", "حا ميم"],
+        "threshold": 0.5,
+    }
+)
+results = response.json()   # list of ASRSegmentResult dicts
+for r in results:
+    print(r["segment_text"], "→",
+          f"{r['verse']['surah_number']}:{r['verse']['ayah_number']}" if r["verse"] else "unresolved")
+```
+
 
 ## Quran Text Styles
 
@@ -630,6 +806,7 @@ Once the server is running, access the interactive documentation:
 - `GET /fuzzy-search?query={text}&threshold={0.7}&surah_hint={n}&start_after_surah={n}&start_after_ayah={n}` - Fuzzy search
 - `GET /sliding-window?query={text}&threshold={80.0}&surah_hint={n}&start_after_surah={n}&start_after_ayah={n}` - Multi-ayah sliding window search
 - `GET /smart-search?query={text}&surah_hint={n}&start_after_surah={n}&start_after_ayah={n}` - Smart search (auto-selects method)
+- `POST /asr-search` - ASR sequential search (JSON body: `{"segments": [...], "threshold": 0.5, "consensus_window": 7}`)
 - `GET /vector-search?query={text}&asymmetric=true&semantic_only=false` - Semantic vector search (requires `[vector]` extras)
 - `GET /stats` - Database statistics
 - `GET /health` - Health check
@@ -850,6 +1027,8 @@ normalized = qal.normalize_arabic_text(text)
 - **`QuranChapter`**: Surah container with O(1) verse access
 - **`QuranDatabase`**: Main database with chapter organization
 - **`FuzzySearchResult`**: Fuzzy search result with similarity and position data
+- **`MultiAyahMatch`**: Multi-ayah sliding window result
+- **`ASRSegmentResult`**: Single ASR segment result with verse, similarity, word offsets, and correction flag
 
 ## Requirements
 
@@ -980,6 +1159,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Multi-Database Cache**: Load multiple styles simultaneously without eviction
 - [x] **Semantic Vector Search**: Hybrid semantic+lexical search with dual retrieval modes (asymmetric e5-base+BM25+RRF / symmetric MiniLM FAISS)
 - [x] **Contextual Search Hints**: `surah_hint` and `start_after` for all non-vector search methods (library, CLI, REST API)
+- [x] **ASR Sequential Search**: Two-pass algorithm for mapping ASR output to Quran verses — handles noise, multi-ayah segments, muqatta'at, sequence correction (library, CLI `qal asr-search`, REST API `POST /asr-search`)
 
 ### 📋 Features To Research In The Future
 

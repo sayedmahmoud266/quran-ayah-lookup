@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.0rc2] - 2026-06-13
+
+### Added
+
+- **🎙️ ASR Sequential Fuzzy Search** (`asr_sequential_fuzzy_search`): A two-pass algorithm that maps an ordered list of ASR (Automatic Speech Recognition) output segments to their Quran verses.
+
+  **Problem it solves**: ASR models produce pause-delimited strings that may have transcription noise, contain multiple consecutive ayahs in one segment, or use spelled-out letter names (e.g. "حا ميم" instead of "حم"). Simple fuzzy search on each segment independently produces out-of-sequence results. This function repairs those.
+
+  **Pass 1 — independent per-segment search** (four attempts each):
+  - Attempt A: uthmani-normalised single-verse fuzzy search
+  - Attempt B: imlaai corpus single-verse search — handles spelled-out muqatta'at ("حا ميم", "الف لام ميم", "يا سين", etc.) and ASR transcriptions of Quranic opening letters
+  - Attempt C: uthmani single-verse with automatic muqatta'at normalisation ("حا ميم" → "حم", "يا سين" → "يس", etc.)
+  - Attempt D: sliding-window multi-ayah search — triggered when the segment has ≥ 6 words or single-verse confidence is below 0.65; preferred over single-verse only when its score exceeds the single-verse score by > 5 %
+
+  **Pass 2 — sequence correction**: A sliding-window majority vote (configurable `consensus_window`, default 7) identifies the dominant surah at each position. Outliers are re-searched with `surah_hint` and `start_after` constraints. Unresolved segments are retried at a lower threshold using context. Still-unresolved segments receive a best-guess verse inferred by linear interpolation between nearest resolved neighbours.
+
+  **New `ASRSegmentResult` data model** — one per input segment:
+  - `verse` — first (or only) matched `QuranVerse`; `None` if unresolvable (only for truly undecodable noise)
+  - `verses` — all matched verses in order (single-element list for single-ayah matches; multi-element for multi-ayah)
+  - `is_multi_ayah` — `True` when the segment spans more than one ayah
+  - `start_word` / `end_word` — word offsets within the first/last matched verse (0-based, exclusive end) — allows callers to pinpoint exactly which part of a verse was matched
+  - `similarity` — best match score (0.0–1.0)
+  - `corpus_used` — `'uthmani'` | `'imlaai'` | `'none'`
+  - `corrected` — `True` if Pass 2 changed the assignment from Pass 1
+  - `to_dict()` for JSON serialization
+
+  **Special verse handling**: istia'dhah (أعوذ بالله — verse 0:0) and tasdiq (صدق الله — verse 999:999) are matched naturally through the existing special-verse machinery; their `is_istiadhah` / `is_tasdiq` flags propagate into results without disrupting the sequence consensus.
+
+  **Available in all three access modes**:
+  - **Library**: `asr_sequential_fuzzy_search(segments, threshold=0.5, consensus_window=7)` exported from top-level package
+  - **CLI**: `qal asr-search` command with `--threshold`, `--window`, and `--json` flags
+  - **REST API**: `POST /asr-search` endpoint accepting a JSON body with `segments`, `threshold`, and `consensus_window` fields
+
+- **🔤 Muqatta'at Normalisation** (`_normalize_muqattaat`): Converts spelled-out Quranic opening-letter names to their compact corpus forms before uthmani search. Handles all 14 known patterns: كهيعص, المر, المص, عسق, الم, الر, حم, يس, طسم, طس, طه, ن, ص, ق. Processes longest patterns first to avoid partial overlaps.
+
+- **🔀 Unified Corpus refactor** (from rc1 → rc2 internal): All seven corpus variants (uthmani-all, simple-clean, simple-minimal, simple-plain, simple, uthmani, simple-imlaai) are now merged inline into every `QuranVerse` object at load time:
+  - `verse.alt` — `Dict[str, Optional[str]]` with five keys (`simple-clean`, `simple-minimal`, `simple-plain`, `simple`, `uthmani`)
+  - `verse.text_imlaai` — dedicated first-class field for the imlaai variant (used by ASR search)
+  - `switch_quran_style()` removed (single unified `QuranDatabase` always)
+  - All search/retrieval functions unchanged
+
+- **✨ Special verses** — two synthetic Islamic framing phrases added as first-class `QuranVerse` objects:
+  - **Istia'dhah** أعوذ بالله من الشيطان الرجيم — verse `(0, 0)`, flag `is_istiadhah=True`
+  - **Tasdiq** صدق الله العظيم — verse `(999, 999)`, flag `is_tasdiq=True`
+  - Stored in `QuranDatabase._special_verses` (not in `surahs`), so corpus iteration, `get_all_verses()`, `get_verse_count()`, and vector indexing are completely unaffected
+  - `search_text()` and `fuzzy_search()` pin the istia'dhah at index 0 and tasdiq at last position when matched — never in the middle of results
+  - Both carry full `alt` dict and `text_imlaai` fields
+
+
 ## [v0.2.0rc1] - 2026-04-08
 
 ### Added
