@@ -106,6 +106,14 @@ _HIGH_CONFIDENCE = 0.85
 _LOW_SINGLE_CONFIDENCE = 0.65
 # Multi-ayah result must beat the single-verse result by this margin to be preferred.
 _MULTI_AYAH_MARGIN = 1.05
+# Number of consecutive high-quality same-surah results needed to lock in a context.
+_CONTEXT_MIN_COUNT = 5
+# Minimum per-segment similarity required for a result to count toward context.
+_CONTEXT_MIN_SIM = 0.70
+# Pass-2 correction is accepted when its similarity is at least this fraction of the
+# original outlier's similarity.  Lower than the old 0.8 so that partial-verse hits
+# (first half / second half of the same ayah) are accepted.
+_CORRECTION_ACCEPT_FACTOR = 0.65
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +336,22 @@ def _search_segment(
 # Sequence-analysis helpers
 # ---------------------------------------------------------------------------
 
+
+def _is_semi_linear(ayahs: List[int]) -> bool:
+    """Return True when the ayah sequence is roughly non-decreasing.
+
+    A sequence is considered semi-linear if at most one-quarter of
+    consecutive pairs regress by more than one ayah.  Equal successive
+    values (same verse split across two segments) are always allowed.
+    """
+    if len(ayahs) < 2:
+        return True
+    regressions = sum(
+        1 for a, b in zip(ayahs[:-1], ayahs[1:]) if b < a - 2
+    )
+    return regressions <= max(1, len(ayahs) // 4)
+
+
 def _extract_positions(
     results: List[Optional[_SegmentMatch]],
 ) -> List[Optional[Tuple[int, int]]]:
@@ -541,13 +565,49 @@ def asr_sequential_fuzzy_search(
     if n == 0:
         return []
 
-    # ── Pass 1: independent per-segment search ─────────────────────────────────
+    # ── Pass 1: per-segment search with incremental context ───────────────────
+    # Process segments in order.  As soon as _CONTEXT_MIN_COUNT consecutive
+    # non-special results all map to the same surah with similarity ≥
+    # _CONTEXT_MIN_SIM and semi-linear ayah numbers, that surah becomes the
+    # active context and is passed as surah_hint for all subsequent searches.
+    # This prevents short/ambiguous segments from being pulled to unrelated
+    # surahs once the recitation surah is known.
     first_pass: List[Optional[_SegmentMatch]] = []
+    active_context: Optional[int] = None          # currently locked surah
+    context_buffer: List[Optional[_SegmentMatch]] = []  # all non-special results
+
     for seg in segments:
         if not seg or not seg.strip():
             first_pass.append(None)
+            context_buffer.append(None)
             continue
-        first_pass.append(_search_segment(seg.strip(), db, threshold))
+
+        # Once context is established, bias every search toward that surah.
+        result = _search_segment(seg.strip(), db, threshold, surah_hint=active_context)
+        first_pass.append(result)
+
+        # Exclude special verses from context tracking.
+        if (result is not None and result.verse is not None
+                and not result.verse.is_istiadhah
+                and not result.verse.is_tasdiq):
+            context_buffer.append(result)
+        else:
+            context_buffer.append(None)
+
+        # Re-evaluate context after every new non-None entry.
+        # Look at the last _CONTEXT_MIN_COUNT non-None entries and check
+        # whether they unanimously agree on a surah with high similarity
+        # and a semi-linear ayah sequence.
+        recent = [m for m in context_buffer if m is not None][-_CONTEXT_MIN_COUNT:]
+        if len(recent) >= _CONTEXT_MIN_COUNT:
+            surahs = [m.verse.surah_number for m in recent if m.verse]
+            sims   = [m.similarity         for m in recent if m.verse]
+            ayahs  = [m.verse.ayah_number  for m in recent if m.verse]
+            if (surahs
+                    and len(set(surahs)) == 1
+                    and min(sims) >= _CONTEXT_MIN_SIM
+                    and _is_semi_linear(ayahs)):
+                active_context = surahs[0]
 
     # ── Pass 2: sequence correction via sliding-window consensus ────────────
     positions = _extract_positions(first_pass)
@@ -558,7 +618,7 @@ def asr_sequential_fuzzy_search(
     for i, (seg, fp_match) in enumerate(zip(segments, first_pass)):
         expected_surah = consensus[i]
 
-        # Special verses: never correct, return as-is
+        # Special verses: never correct, return as-is.
         if fp_match is not None and fp_match.verse is not None:
             if fp_match.verse.is_istiadhah or fp_match.verse.is_tasdiq:
                 second_pass.append((fp_match, False))
@@ -567,29 +627,35 @@ def asr_sequential_fuzzy_search(
         if fp_match is not None and fp_match.verse is not None:
             fp_surah = fp_match.verse.surah_number
             if expected_surah is not None and fp_surah != expected_surah:
-                # Outlier: re-search in the consensus surah
-                prev_pos = _nearest_valid_before(first_pass, i)
+                # Outlier detected: re-search using ONLY surah_hint.
+                #
+                # CRITICAL — do NOT pass start_after here.  A single ayah can
+                # legitimately be referenced by two consecutive segments (e.g.
+                # the reciter pauses mid-verse): the previous segment takes the
+                # first half, this one takes the second half.  Passing
+                # start_after=(prev_surah, prev_ayah) would silently skip the
+                # only correct verse in the context surah and cause a fallback
+                # to an unrelated surah every time.
                 corrected = _search_segment(
                     seg.strip(), db, threshold,
                     surah_hint=expected_surah,
-                    start_after=prev_pos,
                 )
-                # Accept if comparable (≥80 % of original similarity)
-                if corrected is not None and corrected.verse is not None:
-                    if corrected.similarity >= fp_match.similarity * 0.8:
-                        second_pass.append((corrected, True))
-                        continue
+                # Accept if plausible — use a more lenient factor than before
+                # so that partial-verse substring matches are not rejected.
+                if (corrected is not None and corrected.verse is not None
+                        and corrected.similarity >= fp_match.similarity * _CORRECTION_ACCEPT_FACTOR):
+                    second_pass.append((corrected, True))
+                    continue
             second_pass.append((fp_match, False))
 
         else:
-            # No first-pass match — retry with context at lower threshold
+            # No first-pass match — retry at a lower threshold.
+            # Again: no start_after for the same reason explained above.
             retry_threshold = threshold * 0.8
-            prev_pos = _nearest_valid_before(first_pass, i)
             if expected_surah is not None:
                 corrected = _search_segment(
                     seg.strip() if seg else "", db, retry_threshold,
                     surah_hint=expected_surah,
-                    start_after=prev_pos,
                 )
                 if corrected is not None:
                     second_pass.append((corrected, True))
@@ -597,11 +663,10 @@ def asr_sequential_fuzzy_search(
             second_pass.append((None, False))
 
     # ── Build final results with neighbour-interpolation for None entries ───
-    # Collect resolved (surah, ayah) anchors using the *last* verse of each
-    # match so subsequent start_after anchors point past the segment’s end.
     resolved: List[Optional[Tuple[int, int]]] = []
     for m, _ in second_pass:
-        if m is not None and m.verse is not None and not m.verse.is_istiadhah and not m.verse.is_tasdiq:
+        if (m is not None and m.verse is not None
+                and not m.verse.is_istiadhah and not m.verse.is_tasdiq):
             anchor = m.verses[-1] if m.verses else m.verse
             resolved.append((anchor.surah_number, anchor.ayah_number))
         else:
@@ -648,7 +713,7 @@ def asr_sequential_fuzzy_search(
                 start_word=0,
                 end_word=0,
                 corpus_used="none",
-                corrected=True,  # inferred, not directly matched
+                corrected=True,
             ))
 
     return output
@@ -660,22 +725,3 @@ def asr_sequential_fuzzy_search(
 # ---------------------------------------------------------------------------
 
 # Ordered longest-first so compound forms are matched before sub-forms.
-_MUQATTAAT_TABLE: List[Tuple[str, str]] = [
-    ("كاف ها يا عين صاد", "كهيعص"),
-    ("الف لام ميم راء",   "المر"),
-    ("الف لام ميم صاد",   "المص"),
-    ("عين سين قاف",       "عسق"),
-    ("الف لام ميم",       "الم"),
-    ("الف لام راء",       "الر"),
-    ("الف لام را",        "الر"),
-    ("حا ميم",            "حم"),
-    ("يا سين",            "يس"),
-    ("طا سين ميم",        "طسم"),
-    ("طا سين",            "طس"),
-    ("طا ها",             "طه"),
-    ("نون",               "ن"),
-    ("صاد",               "ص"),
-    ("قاف",               "ق"),
-]
-
-

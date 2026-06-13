@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.0rc3] - 2026-06-13
+
+### Fixed
+
+- **🎙️ ASR Sequential Search — incremental context tracking**: Resolved a systematic issue where short or ambiguous segments were assigned to unrelated surahs even when the surrounding recitation was clearly in one surah.
+
+  **Root cause 1 — no context in Pass 1**: Every segment was searched without any hint, so phrases like `ان كنتم`, `اني لكم رسول امين`, or `ذلك هو الفوز العظيم` matched exact standalone verses in other surahs (e.g. 20:35, 26:107, 45:30) before the correct verse in the recitation surah was considered.
+
+  **Root cause 2 — `start_after` blocked the correct verse in Pass 2**: When correcting outliers, the previous anchor position was passed as `start_after`, silently skipping the correct verse in the context surah and causing a fallback to an unrelated surah. A single Quran ayah can legitimately cover two consecutive ASR segments (first half, then second half of the same verse), so `start_after` is the wrong constraint here.
+
+  **Fix — incremental context lock in Pass 1**:
+  - While processing segments in order, a running `active_context` (surah number) is maintained.
+  - Once `_CONTEXT_MIN_COUNT = 5` consecutive non-special results all agree on the same surah with similarity ≥ `_CONTEXT_MIN_SIM = 0.70` **and** a semi-linear ayah sequence (roughly non-decreasing ayah numbers), that surah is locked as `surah_hint` for all subsequent segments in Pass 1.
+  - This prevents later ambiguous segments from wandering to unrelated surahs once the recitation surah is established.
+  - Semi-linearity check (`_is_semi_linear`) allows the same ayah to appear in two consecutive segments (split verse) and tolerates up to ¼ mild regressions, but rejects large ayah number jumps that indicate an incorrect match.
+
+  **Fix — Pass 2 correction uses only `surah_hint`**:
+  - Outlier correction no longer passes `start_after`. Only `surah_hint=consensus_surah` is used.
+  - This allows the correction search to find the second half of an ayah that the previous segment already matched the first half of.
+  - The acceptance factor for corrected results is also relaxed from 0.80 → `_CORRECTION_ACCEPT_FACTOR = 0.65` so that partial-substring hits (matching a word range within a verse rather than the whole verse) are not rejected.
+
+  **Before / after example** (surah 44 Ad-Dukhan input, 31 segments):
+
+  | Segment | Before | After |
+  |---------|--------|-------|
+  | `ان كنتم` | ✗ 20:35 | ✓ 44:7 |
+  | `اني لكم رسول امين` | ✗ 26:107 | ✓ 44:18 |
+  | `ذلك هو الفوز العظيم` | ✗ 45:30 | ✓ 44:57 |
+  | noise segment `خني` | ✗ 8:19 | ✓ 44:37 (best in context) |
+
+### Changed
+
+- **`asr_sequential_fuzzy_search` Pass 1** now processes segments sequentially and passes `surah_hint=active_context` once the recitation surah is detected. Searches without an established context are unaffected and still scan the full corpus.
+- **`asr_sequential_fuzzy_search` Pass 2** correction no longer passes `start_after` to avoid blocking the correct verse when two segments share the same ayah.
+- New constants in `asr_search.py`: `_CONTEXT_MIN_COUNT`, `_CONTEXT_MIN_SIM`, `_CORRECTION_ACCEPT_FACTOR`.
+- New helper `_is_semi_linear(ayahs)` checks whether an ayah sequence is roughly non-decreasing.
+
+
 ## [v0.2.0rc2] - 2026-06-13
 
 ### Added
