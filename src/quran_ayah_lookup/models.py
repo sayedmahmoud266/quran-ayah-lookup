@@ -197,6 +197,77 @@ class MultiAyahMatch:
 
 
 @dataclass
+class ASRSegmentResult:
+    """
+    Result of matching a single ASR output segment to a Quran verse (or verses).
+
+    A segment may cover more than one consecutive ayah (e.g. when the reciter
+    does not pause between ayahs).  In that case ``is_multi_ayah`` is True,
+    ``verses`` contains all matched ayahs in order, and ``verse`` is the first
+    of those ayahs for quick access.
+
+    Attributes:
+        segment_index (int): Position of this segment in the input list (0-based)
+        segment_text (str): Original ASR text for this segment
+        verse (Optional[QuranVerse]): First (or only) matched verse; None if unresolvable
+        verses (List[QuranVerse]): All matched verses in order (single-element list
+            for single-ayah matches, multi-element for multi-ayah matches)
+        is_multi_ayah (bool): True when the segment spans more than one ayah
+        similarity (float): Best similarity score achieved (0.0–1.0)
+        matched_text (str): The portion of the verse text that matched
+        start_word (int): Starting word index within the first matched verse (0-based)
+        end_word (int): Ending word index within the last matched verse (exclusive)
+        corpus_used (str): Which corpus produced the match: 'uthmani', 'imlaai', or 'none'
+        corrected (bool): True if Pass 2 changed the assignment from Pass 1
+    """
+    segment_index: int
+    segment_text: str
+    verse: Optional['QuranVerse']
+    verses: List['QuranVerse'] = field(default_factory=list)
+    is_multi_ayah: bool = False
+    similarity: float = 0.0
+    matched_text: str = ""
+    start_word: int = 0
+    end_word: int = 0
+    corpus_used: str = "none"
+    corrected: bool = False
+
+    def __str__(self) -> str:
+        if self.is_multi_ayah and len(self.verses) > 1:
+            ref = (f"{self.verses[0].surah_number}:{self.verses[0].ayah_number}"
+                   f"–{self.verses[-1].surah_number}:{self.verses[-1].ayah_number}")
+        elif self.verse is not None:
+            ref = f"{self.verse.surah_number}:{self.verse.ayah_number}"
+        else:
+            ref = "unresolved"
+        return (f"ASRSegmentResult[{self.segment_index}] '{self.segment_text[:30]}' "
+                f"→ {ref} (sim={self.similarity:.3f}, corpus={self.corpus_used})")
+
+    def __repr__(self) -> str:
+        verse_ref = (f"{self.verse.surah_number}:{self.verse.ayah_number}"
+                     if self.verse else "None")
+        return (f"ASRSegmentResult(idx={self.segment_index}, verse={verse_ref}, "
+                f"multi={self.is_multi_ayah}, sim={self.similarity:.3f}, "
+                f"corpus={self.corpus_used!r}, corrected={self.corrected})")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'segment_index': self.segment_index,
+            'segment_text': self.segment_text,
+            'verse': self.verse.to_dict() if self.verse is not None else None,
+            'verses': [v.to_dict() for v in self.verses],
+            'is_multi_ayah': self.is_multi_ayah,
+            'similarity': self.similarity,
+            'matched_text': self.matched_text,
+            'start_word': self.start_word,
+            'end_word': self.end_word,
+            'corpus_used': self.corpus_used,
+            'corrected': self.corrected,
+        }
+
+
+@dataclass
 class QuranChapter:
     """
     Represents a Quran chapter (surah) with O(1) verse lookup.

@@ -11,9 +11,10 @@ Email: foss-support@sayedmahmoud266.website
 
 
 # Import core functionality
-from .models import QuranVerse, QuranChapter, QuranDatabase, FuzzySearchResult, MultiAyahMatch, default_settings
+from .models import QuranVerse, QuranChapter, QuranDatabase, FuzzySearchResult, MultiAyahMatch, ASRSegmentResult, default_settings
 from .text_utils import normalize_arabic_text
 from .loader import initialize_quran_database, get_quran_database, QuranStyle, update_loader_settings
+from .asr_search import asr_sequential_fuzzy_search
 from importlib.metadata import version
 import atexit
 
@@ -49,6 +50,7 @@ __all__ = [
     'QuranDatabase',
     'FuzzySearchResult',
     'MultiAyahMatch',
+    'ASRSegmentResult',
     'normalize_arabic_text',
     'get_quran_database',
     'get_verse',
@@ -63,6 +65,7 @@ __all__ = [
     'update_loader_settings',
     'VectorSearch',
     'vector_search',
+    'asr_sequential_fuzzy_search',
 ]
 
 

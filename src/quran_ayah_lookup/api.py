@@ -22,6 +22,8 @@ from . import (
     QuranVerse,
     FuzzySearchResult,
     MultiAyahMatch,
+    ASRSegmentResult,
+    asr_sequential_fuzzy_search,
     __version__,
 )
 
@@ -197,6 +199,21 @@ class SmartSearchResponse(BaseModel):
     exact_results: Optional[List[VerseResponse]] = Field(None, description="Results from exact text search (if method='exact')")
     fuzzy_results: Optional[List[FuzzySearchResultResponse]] = Field(None, description="Results from fuzzy search (if method='fuzzy')")
     sliding_window_results: Optional[List[MultiAyahMatchResponse]] = Field(None, description="Results from sliding window search (if method='sliding_window')")
+
+
+class ASRSegmentResultResponse(BaseModel):
+    """Response model for a single ASR segment result."""
+    segment_index: int = Field(..., description="Position of this segment in the input list (0-based)")
+    segment_text: str = Field(..., description="Original ASR text for this segment")
+    verse: Optional[VerseResponse] = Field(None, description="First (or only) matched verse")
+    verses: List[VerseResponse] = Field(default_factory=list, description="All matched verses in order")
+    is_multi_ayah: bool = Field(False, description="True when the segment spans more than one ayah")
+    similarity: float = Field(0.0, description="Best similarity score (0.0-1.0)")
+    matched_text: str = Field("", description="Portion of the verse text that matched")
+    start_word: int = Field(0, description="Word offset of match start within the first verse (0-based)")
+    end_word: int = Field(0, description="Word offset of match end within the last verse (exclusive)")
+    corpus_used: str = Field("none", description="Corpus that produced the match: 'uthmani', 'imlaai', or 'none'")
+    corrected: bool = Field(False, description="True if Pass 2 changed the assignment from Pass 1")
 
 
 class DatabaseStatsResponse(BaseModel):
@@ -672,6 +689,89 @@ async def smart_search_endpoint(
             response.sliding_window_results = [multi_ayah_match_to_response(m) for m in result['results']]
 
         return response
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+
+
+class ASRSearchRequest(BaseModel):
+    """Request body for the ASR search endpoint."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "segments": [
+                    "بسم الله الرحمن الرحيم",
+                    "سبح اسم ربك الاعلى",
+                    "حا ميم",
+                    "والكتاب المبين"
+                ],
+                "threshold": 0.5,
+                "consensus_window": 7
+            }
+        }
+    )
+    segments: List[str] = Field(..., min_length=1, description="Ordered list of ASR output segments")
+    threshold: float = Field(0.5, ge=0.0, le=1.0, description="Minimum fuzzy similarity score (0.0-1.0)")
+    consensus_window: int = Field(7, ge=1, le=50, description="Sliding-window size for surah majority vote")
+
+
+@app.post(
+    "/asr-search",
+    response_model=List[ASRSegmentResultResponse],
+    summary="ASR sequential fuzzy search",
+    description=(
+        "Map an ordered list of ASR output segments to their Quran verses. "
+        "Handles transcription noise, multi-ayah segments, spelled-out muqattaʽat, "
+        "partial-ayah word offsets, and sequence correction via sliding-window majority vote."
+    ),
+    tags=["Search"],
+    responses={
+        200: {"description": "ASR search completed successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid parameters"},
+    }
+)
+async def asr_search_endpoint(request: ASRSearchRequest):
+    """
+    Map an ordered list of ASR segments to their Quran verses.
+
+    Each item in **segments** is a pause-delimited string from an ASR model.
+    A segment may cover a partial ayah, a full ayah, or multiple consecutive
+    ayahs when the reciter does not pause between them.
+
+    **Pass 1** — four attempts per segment: uthmani, imlaai (handles “حا ميم”),
+    muqattaʽat-normalised, and sliding-window multi-ayah.
+    **Pass 2** — sliding-window majority vote corrects outliers and fills
+    unresolved segments from neighbours.
+
+    Key response fields: `verse`, `verses`, `is_multi_ayah`, `start_word`,
+    `end_word`, `similarity`, `corpus_used`, `corrected`
+    """
+    if not request.segments:
+        raise HTTPException(status_code=400, detail="segments list must not be empty.")
+    try:
+        results = asr_sequential_fuzzy_search(
+            request.segments,
+            threshold=request.threshold,
+            consensus_window=request.consensus_window,
+        )
+
+        def _seg_to_response(r):
+            return ASRSegmentResultResponse(
+                segment_index=r.segment_index,
+                segment_text=r.segment_text,
+                verse=verse_to_response(r.verse) if r.verse is not None else None,
+                verses=[verse_to_response(v) for v in r.verses],
+                is_multi_ayah=r.is_multi_ayah,
+                similarity=r.similarity,
+                matched_text=r.matched_text,
+                start_word=r.start_word,
+                end_word=r.end_word,
+                corpus_used=r.corpus_used,
+                corrected=r.corrected,
+            )
+
+        return [_seg_to_response(r) for r in results]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -23,6 +23,7 @@ from . import (
     get_quran_database,
     initialize_quran_database,
     QuranStyle,
+    asr_sequential_fuzzy_search,
 )
 
 # Optional: vector search (requires [vector] extras + pre-built FAISS index)
@@ -427,6 +428,88 @@ def smart_search_cmd(ctx, query: str, fuzzy_threshold: float, sliding_threshold:
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+
+@cli.command(name="asr-search", help="Map ASR output segments to Quran verses (sequential two-pass search)")
+@click.argument("segments", nargs=-1, required=True)
+@click.option("--threshold", "-t", type=float, default=0.5,
+              help="Minimum fuzzy similarity score (0.0-1.0, default 0.5)")
+@click.option("--window", "-w", type=int, default=7,
+              help="Sliding-window size for surah majority vote (default 7)")
+@click.option("--json", "output_json", is_flag=True, default=False,
+              help="Output raw JSON instead of human-readable text")
+@style_option
+@click.pass_context
+def asr_search_cmd(ctx, segments: tuple, threshold: float, window: int, output_json: bool):
+    """
+    Map ASR output segments to Quran verses using a two-pass sequential search.
+
+    Each SEGMENT argument is a pause-delimited string from an ASR model.  Pass
+    multiple segments as separate quoted arguments.  A segment may cover a partial
+    ayah, a full ayah, or multiple consecutive ayahs.
+
+    Examples:\n
+        qal asr-search "سبح اسم ربك الاعلى" "الذي خلق فسوى" "والذي قدر فهدى"\n
+        qal asr-search "حا ميم" "والكتاب المبين" "انا انزلناه في ليلة مباركة"\n
+        qal asr-search --json "بسم الله الرحمن الرحيم" "سبح اسم ربك الاعلى"
+    """
+    import json as _json
+    if not segments:
+        click.echo("Error: at least one SEGMENT is required.", err=True)
+        sys.exit(1)
+    if threshold < 0.0 or threshold > 1.0:
+        click.echo("Error: --threshold must be between 0.0 and 1.0", err=True)
+        sys.exit(1)
+    if window < 1:
+        click.echo("Error: --window must be >= 1", err=True)
+        sys.exit(1)
+
+    try:
+        results = asr_sequential_fuzzy_search(
+            list(segments),
+            threshold=threshold,
+            consensus_window=window,
+        )
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+
+    if output_json:
+        click.echo(_json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2))
+        return
+
+    click.echo(f"ASR Search — {len(results)} segment(s) | threshold={threshold} | window={window}")
+    click.echo("─" * 60)
+
+    for r in results:
+        seg_preview = r.segment_text[:40] + ("…" if len(r.segment_text) > 40 else "")
+        click.echo(f"\n[{r.segment_index + 1}/{len(results)}] \"{seg_preview}\"")
+
+        if r.verse is None:
+            click.echo("  → unresolved")
+            continue
+
+        if r.is_multi_ayah and len(r.verses) > 1:
+            first, last = r.verses[0], r.verses[-1]
+            if first.surah_number == last.surah_number:
+                ref = f"{first.surah_number}:{first.ayah_number}–{last.ayah_number}"
+            else:
+                ref = f"{first.surah_number}:{first.ayah_number} – {last.surah_number}:{last.ayah_number}"
+            click.echo(f"  → {ref}  [multi-ayah, {len(r.verses)} verses]"
+                       f"  sim={r.similarity:.3f}  words {r.start_word}–{r.end_word}"
+                       f"  corpus={r.corpus_used}"
+                       + ("  [corrected]" if r.corrected else ""))
+            for v in r.verses:
+                click.echo(f"     {v.surah_number}:{v.ayah_number}  {v.text_normalized[:60]}")
+        else:
+            v = r.verse
+            click.echo(f"  → {v.surah_number}:{v.ayah_number}"
+                       f"  sim={r.similarity:.3f}  words {r.start_word}–{r.end_word}"
+                       f"  corpus={r.corpus_used}"
+                       + ("  [corrected]" if r.corrected else ""))
+            click.echo(f"     {v.text_normalized[:70]}")
+            if r.matched_text and r.matched_text != v.text_normalized:
+                click.echo(f"     matched: «{r.matched_text}»")
 
 
 @cli.command(name="vector-search", help="Semantic vector search using sentence-transformers and FAISS")
